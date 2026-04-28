@@ -9,7 +9,7 @@ import { createRun, updateRun } from './runs'
 import { dispatchTaskViaRuntime, resolveTaskRuntime } from './task-runtime-dispatch'
 import { getAllGatewaySessions } from './sessions'
 import { parseGatewayHistoryTranscript } from './transcript-parser'
-import { resolveProjectWorkdir, safeParseProjectMetadata } from './project-workdir'
+import { PROJECT_ENV_META_KEY, resolveProjectWorkdir, safeParseProjectMetadata, sanitizeProjectEnv } from './project-workdir'
 
 /** Sync task to GitHub/GNAP and broadcast escalation if task failed */
 function syncAndEscalateIfFailed(task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
@@ -171,11 +171,13 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
   } catch { /* comments are helpful context, not dispatch-critical */ }
 
   if (task.project_id) {
+    const projectMetadata = safeParseProjectMetadata(task.project_metadata)
     const projectWorkdir = resolveProjectWorkdir({
       slug: task.project_slug,
       name: task.project_name,
-      metadata: safeParseProjectMetadata(task.project_metadata),
+      metadata: projectMetadata,
     })
+    const projectEnv = sanitizeProjectEnv(projectMetadata[PROJECT_ENV_META_KEY])
     lines.push(
       '',
       '## Project Context',
@@ -183,6 +185,14 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
       `Shared project directory: ${projectWorkdir}`,
     )
     if (task.project_description?.trim()) lines.push('', 'Project goal / brief:', task.project_description.trim())
+    if (Object.keys(projectEnv).length > 0) {
+      lines.push(
+        '',
+        '## Project Environment',
+        `The following project-specific environment variables are available to this task runtime: ${Object.keys(projectEnv).sort().join(', ')}`,
+        'Use these variables to discover project credentials, reference files, SSH keys, and service URLs. Do not print or expose secret values in your final response or comments.'
+      )
+    }
     if (task.project_github_repo) {
       lines.push(
         `GitHub repo: ${task.project_github_repo}`,
@@ -929,11 +939,14 @@ export async function dispatchAssignedTasks(taskId?: number): Promise<{ ok: bool
           const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string } | undefined
           const meta = row?.metadata ? JSON.parse(row.metadata) : {}
           if (task.project_id) {
+            const projectMetadata = safeParseProjectMetadata(task.project_metadata)
             meta.code_location = meta.code_location || resolveProjectWorkdir({
               slug: task.project_slug,
               name: task.project_name,
-              metadata: safeParseProjectMetadata(task.project_metadata),
+              metadata: projectMetadata,
             })
+            const projectEnv = sanitizeProjectEnv(projectMetadata[PROJECT_ENV_META_KEY])
+            if (Object.keys(projectEnv).length > 0) meta.project_env = projectEnv
             if (task.project_github_repo) meta.implementation_repo = meta.implementation_repo || task.project_github_repo
           }
           return meta

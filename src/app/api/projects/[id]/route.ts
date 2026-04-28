@@ -7,7 +7,7 @@ import {
   ensureTenantWorkspaceAccess,
   ForbiddenError
 } from '@/lib/workspaces'
-import { PROJECT_WORKDIR_META_KEY, safeParseProjectMetadata, withResolvedProjectWorkdir } from '@/lib/project-workdir'
+import { PROJECT_ENV_META_KEY, PROJECT_WORKDIR_META_KEY, safeParseProjectMetadata, sanitizeProjectEnv, withResolvedProjectWorkdir } from '@/lib/project-workdir'
 
 function normalizePrefix(input: string): string {
   const normalized = input.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -194,11 +194,21 @@ export async function PATCH(
       updates.push('github_labels_initialized = ?')
       paramsList.push(body.github_labels_initialized ? 1 : 0)
     }
+    const metadata = safeParseProjectMetadata(current.metadata)
+    let metadataChanged = false
     if (body?.project_workdir !== undefined) {
-      const metadata = safeParseProjectMetadata(current.metadata)
       const workdir = typeof body.project_workdir === 'string' ? body.project_workdir.trim() : ''
       if (workdir) metadata[PROJECT_WORKDIR_META_KEY] = workdir
       else delete metadata[PROJECT_WORKDIR_META_KEY]
+      metadataChanged = true
+    }
+    if (body?.project_env !== undefined) {
+      const projectEnv = sanitizeProjectEnv(body.project_env)
+      if (Object.keys(projectEnv).length > 0) metadata[PROJECT_ENV_META_KEY] = projectEnv
+      else delete metadata[PROJECT_ENV_META_KEY]
+      metadataChanged = true
+    }
+    if (metadataChanged) {
       updates.push('metadata = ?')
       paramsList.push(JSON.stringify(metadata))
     }

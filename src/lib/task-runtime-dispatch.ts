@@ -196,6 +196,20 @@ function resolveTaskThinking(task: RuntimeDispatchTask): string | null {
   return null
 }
 
+function resolveProjectRuntimeEnv(task: RuntimeDispatchTask): NodeJS.ProcessEnv {
+  const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
+  const projectEnv = meta.project_env
+  if (!projectEnv || typeof projectEnv !== 'object' || Array.isArray(projectEnv)) return {} as NodeJS.ProcessEnv
+  const env = {} as NodeJS.ProcessEnv
+  for (const [rawKey, rawValue] of Object.entries(projectEnv as Record<string, unknown>)) {
+    const key = rawKey.trim().toUpperCase()
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue
+    if (rawValue == null) continue
+    env[key] = String(rawValue)
+  }
+  return env
+}
+
 async function dispatchOpenClaw(task: RuntimeDispatchTask, prompt: string): Promise<RuntimeDispatchResult> {
   const cfg = getAgentConfig(task)
   const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
@@ -299,7 +313,7 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
 
   const result = await runCommand('hermes', args, {
     cwd: resolveTaskWorkingDir(task),
-    env: await getRuntimeEnv(),
+    env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 
@@ -324,7 +338,7 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
 
   const result = await runCommand('claude', args, {
     cwd: resolveTaskWorkingDir(task),
-    env: await getRuntimeEnv(),
+    env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 
@@ -351,7 +365,7 @@ async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise
 
   const result = await runCommand('codex', args, {
     cwd: resolveTaskWorkingDir(task),
-    env: await getRuntimeEnv(),
+    env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 
