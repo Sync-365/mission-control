@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { createClientLogger } from '@/lib/client-logger'
+import { formatModelName, formatRuntimeName } from '@/lib/agent-card-helpers'
 
 const log = createClientLogger('AgentSquadPanel')
 
@@ -209,7 +210,11 @@ export function AgentSquadPanel() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {agents.map(agent => (
+            {agents.map(agent => {
+              const runtimeName = formatRuntimeName(agent)
+              const modelName = formatModelName(agent.config)
+
+              return (
               <div
                 key={agent.id}
                 className="bg-gray-800 rounded-lg p-4 border-l-4 border-gray-600 hover:bg-gray-750 transition-colors cursor-pointer"
@@ -220,9 +225,12 @@ export function AgentSquadPanel() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-white text-lg">{agent.name}</h3>
-                      {agent.runtime_type && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-1 text-muted-foreground border border-border/30">
-                          {agent.runtime_type}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-1 text-muted-foreground border border-border/30 uppercase">
+                        {runtimeName}
+                      </span>
+                      {modelName && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700/70 text-gray-300 border border-gray-600/50 font-mono truncate max-w-32" title={modelName}>
+                          {modelName}
                         </span>
                       )}
                     </div>
@@ -307,7 +315,8 @@ export function AgentSquadPanel() {
                   </Button>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

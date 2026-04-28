@@ -21,7 +21,7 @@ import {
   ModelsTab,
   CreateAgentModal
 } from './agent-detail-tabs'
-import { formatModelName, buildTaskStatParts } from '@/lib/agent-card-helpers'
+import { formatModelName, formatRuntimeName, buildTaskStatParts } from '@/lib/agent-card-helpers'
 import { useMissionControl, type Agent } from '@/store'
 
 const log = createClientLogger('AgentSquadPhase3')
@@ -418,6 +418,7 @@ export function AgentSquadPanelPhase3() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {agents.map(agent => {
               const modelName = formatModelName(agent.config)
+              const runtimeName = formatRuntimeName(agent)
               const taskStatsLine = buildTaskStatParts(agent.taskStats)
 
               return (
@@ -434,10 +435,10 @@ export function AgentSquadPanelPhase3() {
                     <div className="flex items-center gap-2.5 min-w-0">
                       <AgentAvatar name={agent.name} size="md" />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 min-w-0">
                           <h3 className="font-semibold text-foreground truncate">{agent.name}</h3>
                           {(agent as any).source && (agent as any).source !== 'manual' && (
-                            <span className={`text-2xs px-1.5 py-0.5 rounded-full border ${
+                            <span className={`shrink-0 text-2xs px-1.5 py-0.5 rounded-full border ${
                               (agent as any).source === 'local'
                                 ? 'bg-violet-500/15 text-violet-300 border-violet-500/30'
                                 : (agent as any).source === 'gateway'
@@ -448,9 +449,27 @@ export function AgentSquadPanelPhase3() {
                             </span>
                           )}
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {agent.role}{modelName && <> · <span className="font-mono text-muted-foreground/80">{modelName}</span></>}
-                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full border px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide ${
+                            runtimeName === 'hermes'
+                              ? 'border-amber-500/30 bg-amber-500/15 text-amber-300'
+                              : runtimeName === 'openclaw'
+                                ? 'border-cyan-500/30 bg-cyan-500/15 text-cyan-300'
+                                : runtimeName === 'claude'
+                                  ? 'border-orange-500/30 bg-orange-500/15 text-orange-300'
+                                  : runtimeName === 'codex'
+                                    ? 'border-emerald-500/30 bg-emerald-500/15 text-emerald-300'
+                                    : 'border-slate-500/30 bg-slate-500/15 text-slate-300'
+                          }`}>
+                            {runtimeName}
+                          </span>
+                          {modelName && (
+                            <span className="max-w-full truncate rounded-full border border-border/60 bg-surface-1 px-1.5 py-0.5 text-2xs font-mono text-muted-foreground" title={modelName}>
+                              {modelName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground truncate">{agent.role}</p>
                       </div>
                     </div>
 

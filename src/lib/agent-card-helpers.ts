@@ -4,11 +4,35 @@
 
 /** Strip provider prefix from model ID: "anthropic/claude-opus-4-5" → "claude-opus-4-5" */
 export function formatModelName(config: any): string | null {
-  const raw = config?.model?.primary
-  const primary = typeof raw === 'string' ? raw : raw?.primary
-  if (!primary || typeof primary !== 'string') return null
+  const model = config?.model
+  const primary = typeof model === 'string'
+    ? model
+    : typeof model?.primary === 'string'
+      ? model.primary
+      : typeof config?.dispatchModel === 'string'
+        ? config.dispatchModel
+        : typeof config?.model_primary === 'string'
+          ? config.model_primary
+          : null
+  if (!primary) return null
   const parts = primary.split('/')
   return parts[parts.length - 1]
+}
+
+/** Resolve a concise runtime label for agent cards. */
+export function formatRuntimeName(agent: { runtime_type?: string | null; config?: any }): string {
+  const cfg = agent.config || {}
+  const runtime = String(
+    agent.runtime_type
+      || cfg.runtime_type
+      || cfg.runtime?.type
+      || (typeof cfg.runtime === 'string' ? cfg.runtime : '')
+      || (cfg.hermesProfile ? 'hermes' : '')
+      || 'openclaw'
+  ).trim()
+  if (!runtime) return 'openclaw'
+  if (runtime === 'profile' || runtime === 'custom') return runtime
+  return runtime.toLowerCase()
 }
 
 export interface TaskStats {
