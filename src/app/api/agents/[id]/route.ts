@@ -98,6 +98,7 @@ export async function PUT(
       if (source.identity) writeBack.identity = source.identity
       if (source.sandbox) writeBack.sandbox = source.sandbox
       if (source.tools) writeBack.tools = source.tools
+      if (source.skills) writeBack.skills = source.skills
       if (source.subagents) writeBack.subagents = source.subagents
       if (source.memorySearch) writeBack.memorySearch = source.memorySearch
       return writeBack

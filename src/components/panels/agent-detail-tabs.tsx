@@ -1655,6 +1655,7 @@ export function ConfigTab({
   const [error, setError] = useState<string | null>(null)
   const [jsonInput, setJsonInput] = useState('')
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [availableSkills, setAvailableSkills] = useState<Array<{ name: string; source?: string; description?: string }>>([])
   const [newFallbackModel, setNewFallbackModel] = useState('')
   const [newAllowTool, setNewAllowTool] = useState('')
   const [newDenyTool, setNewDenyTool] = useState('')
@@ -1712,7 +1713,25 @@ export function ConfigTab({
         // Ignore model suggestions if unavailable.
       }
     }
+
+    const loadAvailableSkills = async () => {
+      try {
+        const response = await fetch('/api/skills')
+        if (!response.ok) return
+        const data = await response.json()
+        const skills = Array.isArray(data.skills) ? data.skills : []
+        setAvailableSkills(skills.map((skill: any) => ({
+          name: String(skill.name || '').trim(),
+          source: skill.source ? String(skill.source) : undefined,
+          description: skill.description ? String(skill.description) : undefined,
+        })).filter((skill: { name: string }) => skill.name))
+      } catch {
+        // Ignore skill suggestions if unavailable.
+      }
+    }
+
     loadAvailableModels()
+    loadAvailableSkills()
   }, [])
 
   const updateModelConfig = (updater: (current: { primary?: string; fallbacks?: string[] }) => { primary?: string; fallbacks?: string[] }) => {
@@ -1810,7 +1829,7 @@ export function ConfigTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           gateway_config: showJson ? JSON.parse(jsonInput) : config,
-          write_to_gateway: true,
+          write_to_gateway: runtimeType === 'openclaw',
         }),
       })
       const data = await response.json()
@@ -1842,6 +1861,13 @@ export function ConfigTab({
   const toolRawPreview = typeof tools.raw === 'string' ? tools.raw : ''
   const modelPrimary = model.primary || ''
   const modelFallbacks = Array.isArray(model.fallbacks) ? model.fallbacks : []
+  const selectedSkills = Array.isArray(config.skills) ? config.skills.map((skill: any) => String(skill)).filter(Boolean) : []
+  const skillOptions = [
+    ...availableSkills,
+    ...selectedSkills
+      .filter((name: string) => !availableSkills.some(skill => skill.name === name))
+      .map((name: string) => ({ name, source: 'configured' })),
+  ]
   const runtimeType = config.runtime_type || config.runtime?.type || (agent as any).runtime_type || 'openclaw'
   const runtimeProfile = config.hermesProfile || config.runtime?.profile || config.openclawId || ''
   const runtimeWorkspace = config.hermesProfileDir || config.runtime?.profileDir || config.workspace || config.cwd || ''
@@ -1909,6 +1935,39 @@ export function ConfigTab({
               <div><span className="text-muted-foreground">Profile:</span> <span className="text-foreground font-mono">{runtimeProfile || t('notConfigured')}</span></div>
               <div className="min-w-0"><span className="text-muted-foreground">Workspace:</span> <span className="text-foreground font-mono break-words">{runtimeWorkspace || t('notConfigured')}</span></div>
             </div>
+          </div>
+
+          {/* Skills */}
+          <div className="bg-surface-1/50 rounded-lg p-4">
+            <h5 className="text-sm font-medium text-foreground mb-2">Skills</h5>
+            {editing ? (
+              <div className="space-y-2">
+                <select
+                  multiple
+                  value={selectedSkills}
+                  onChange={(e) => {
+                    const next = Array.from(e.currentTarget.selectedOptions).map(option => option.value)
+                    setConfig((prev: any) => ({ ...prev, skills: next }))
+                  }}
+                  className="w-full min-h-36 bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-sm"
+                >
+                  {skillOptions.map(skill => (
+                    <option key={`${skill.source || 'skill'}:${skill.name}`} value={skill.name} title={skill.description || skill.source || skill.name}>
+                      {skill.name}{skill.source ? ` · ${skill.source}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">Hold Ctrl/Cmd to select multiple. Empty means no explicit skill allowlist.</p>
+              </div>
+            ) : selectedSkills.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedSkills.map((skill: string) => (
+                  <span key={skill} className="px-2 py-1 text-xs rounded bg-surface-2 text-foreground font-mono">{skill}</span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No explicit skills configured</div>
+            )}
           </div>
 
           {/* Model */}
