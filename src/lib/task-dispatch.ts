@@ -578,7 +578,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       `).run(task.id, verdict.status, verdict.notes, task.workspace_id)
 
       if (verdict.status === 'approved') {
-        db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
+        db.prepare('UPDATE tasks SET status = ?, error_message = NULL, dispatch_attempts = 0, updated_at = ? WHERE id = ?')
           .run('done', Math.floor(Date.now() / 1000), task.id)
 
         eventBus.broadcast('task.status_changed', {
