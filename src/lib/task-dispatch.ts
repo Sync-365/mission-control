@@ -576,7 +576,7 @@ function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; no
 }
 
 /**
- * Run Aegis quality reviews on tasks in 'review' status.
+ * Run Aegis quality reviews on tasks awaiting review.
  * Uses an agent to evaluate the task resolution, then approves or rejects.
  */
 export async function runAegisReviews(): Promise<{ ok: boolean; message: string }> {
@@ -588,7 +588,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
     FROM tasks t
     LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
     LEFT JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
-    WHERE t.status = 'review'
+    WHERE t.status IN ('review', 'quality_review')
     ORDER BY t.updated_at ASC
     LIMIT 3
   `).all() as ReviewableTask[]
@@ -600,15 +600,20 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
   const results: Array<{ id: number; verdict: string; error?: string }> = []
 
   for (const task of tasks) {
-    // Move to quality_review to prevent re-processing
-    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run('quality_review', Math.floor(Date.now() / 1000), task.id)
+    const previousStatus = task.status
+    if (previousStatus !== 'quality_review') {
+      // Move to quality_review to prevent duplicate processing while the
+      // reviewer is running. Include already-quality_review tasks in the query
+      // so timeout/restart/manual-recovery cases do not get stranded forever.
+      db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
+        .run('quality_review', Math.floor(Date.now() / 1000), task.id)
 
-    eventBus.broadcast('task.status_changed', {
-      id: task.id,
-      status: 'quality_review',
-      previous_status: 'review',
-    })
+      eventBus.broadcast('task.status_changed', {
+        id: task.id,
+        status: 'quality_review',
+        previous_status: previousStatus,
+      })
+    }
 
     try {
       const prompt = buildReviewPrompt(task)
