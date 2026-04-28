@@ -794,14 +794,88 @@ export function ActivityTab({ agent }: { agent: Agent }) {
 // These replace the old CreateAgentModal and add the Config tab
 
 // Template data for the wizard (client-side mirror of agent-templates.ts)
-const TEMPLATES = [
-  { type: 'orchestrator', label: 'Orchestrator', emoji: '\ud83e\udded', description: 'Primary coordinator with full tool access', modelTier: 'opus' as const, toolCount: 23, theme: 'operator strategist' },
-  { type: 'developer', label: 'Developer', emoji: '\ud83d\udee0\ufe0f', description: 'Full-stack builder with Docker bridge', modelTier: 'sonnet' as const, toolCount: 21, theme: 'builder engineer' },
-  { type: 'specialist-dev', label: 'Specialist Dev', emoji: '\u2699\ufe0f', description: 'Focused developer for specific domains', modelTier: 'sonnet' as const, toolCount: 15, theme: 'specialist developer' },
-  { type: 'reviewer', label: 'Reviewer / QA', emoji: '\ud83d\udd2c', description: 'Read-only code review and quality gates', modelTier: 'haiku' as const, toolCount: 7, theme: 'quality reviewer' },
-  { type: 'researcher', label: 'Researcher', emoji: '\ud83d\udd0d', description: 'Browser and web access for research', modelTier: 'sonnet' as const, toolCount: 8, theme: 'research analyst' },
-  { type: 'content-creator', label: 'Content Creator', emoji: '\u270f\ufe0f', description: 'Write and edit for content generation', modelTier: 'haiku' as const, toolCount: 9, theme: 'content creator' },
-  { type: 'security-auditor', label: 'Security Auditor', emoji: '\ud83d\udee1\ufe0f', description: 'Read-only + bash for security scanning', modelTier: 'sonnet' as const, toolCount: 10, theme: 'security auditor' },
+type CreateAgentTemplate = {
+  type: string
+  label: string
+  emoji: string
+  description: string
+  modelTier: 'opus' | 'sonnet' | 'haiku'
+  toolCount: number
+  theme: string
+  instructions: string
+}
+
+const DEFAULT_TEMPLATES: CreateAgentTemplate[] = [
+  {
+    type: 'orchestrator',
+    label: 'Orchestrator',
+    emoji: '🧭',
+    description: 'Primary coordinator with full tool access. Routes tasks to specialist agents and manages workflows.',
+    modelTier: 'opus',
+    toolCount: 23,
+    theme: 'operator strategist',
+    instructions: 'You are an orchestrator. Break ambiguous goals into clear tasks, assign work to the right specialist, spawn or coordinate subagents where useful, track blockers, review outputs, and escalate decisions that need the human owner. Do not do all implementation yourself when delegation is more effective.',
+  },
+  {
+    type: 'developer',
+    label: 'Developer',
+    emoji: '🛠️',
+    description: 'Full-stack builder with Docker bridge networking, exec/write access, and subagent spawning.',
+    modelTier: 'sonnet',
+    toolCount: 21,
+    theme: 'builder engineer',
+    instructions: 'You are a full-stack developer. Implement scoped changes, inspect the repo before editing, keep diffs focused, run the smallest meaningful verification, and report files changed, tests run, and any remaining risks.',
+  },
+  {
+    type: 'specialist-dev',
+    label: 'Specialist Dev',
+    emoji: '⚙️',
+    description: 'Focused developer for specific domains (frontend, backend, blockchain). Docker bridge + write access.',
+    modelTier: 'sonnet',
+    toolCount: 15,
+    theme: 'specialist developer',
+    instructions: 'You are a specialist developer for a defined domain. Stay inside your speciality, apply relevant framework conventions, avoid unrelated refactors, and hand off clearly when work crosses into another domain.',
+  },
+  {
+    type: 'reviewer',
+    label: 'Reviewer / QA',
+    emoji: '🔬',
+    description: 'Read-only access for code review, quality gates, and auditing. Lightweight model by default.',
+    modelTier: 'haiku',
+    toolCount: 7,
+    theme: 'quality reviewer',
+    instructions: 'You are a reviewer and QA agent. Check correctness, regressions, edge cases, acceptance criteria, and verification evidence. Prefer specific actionable findings over broad commentary. Do not modify files unless explicitly asked.',
+  },
+  {
+    type: 'researcher',
+    label: 'Researcher',
+    emoji: '🔍',
+    description: 'Browser and web access for research tasks. No workspace or code execution.',
+    modelTier: 'sonnet',
+    toolCount: 8,
+    theme: 'research analyst',
+    instructions: 'You are a research analyst. Gather current information, compare sources, cite important claims, separate facts from assumptions, and finish with concise recommendations or next steps.',
+  },
+  {
+    type: 'content-creator',
+    label: 'Content Creator',
+    emoji: '✏️',
+    description: 'Write and edit access for content generation. No code execution or browser by default.',
+    modelTier: 'haiku',
+    toolCount: 9,
+    theme: 'content creator',
+    instructions: 'You are a content creator and editor. Write clearly in the requested voice, preserve intent, structure for readability, and call out any missing audience, tone, or distribution assumptions.',
+  },
+  {
+    type: 'security-auditor',
+    label: 'Security Auditor',
+    emoji: '🛡️',
+    description: 'Read-only workspace with bash for security scanning. No write access to prevent tampering.',
+    modelTier: 'sonnet',
+    toolCount: 10,
+    theme: 'security auditor',
+    instructions: 'You are a security auditor. Look for concrete risks, exploitability, secrets exposure, unsafe permissions, dependency issues, and missing controls. Prioritise findings by severity and recommend safe mitigations.',
+  },
 ]
 
 const MODEL_TIER_COLORS: Record<string, string> = {
@@ -811,9 +885,9 @@ const MODEL_TIER_COLORS: Record<string, string> = {
 }
 
 const MODEL_TIER_LABELS: Record<string, string> = {
-  opus: 'Opus $$$',
-  sonnet: 'Sonnet $$',
-  haiku: 'Haiku $',
+  opus: '$$$',
+  sonnet: '$$',
+  haiku: '$',
 }
 
 const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
@@ -896,7 +970,9 @@ export function CreateAgentModal({
 }) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<CreateAgentTemplate[]>(DEFAULT_TEMPLATES)
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; alias?: string; provider: string }>>([])
+  const [availableSkills, setAvailableSkills] = useState<Array<{ name: string; source?: string; description?: string }>>([])
   const [formData, setFormData] = useState({
     name: '',
     id: '',
@@ -913,7 +989,7 @@ export function CreateAgentModal({
     dockerNetwork: 'none' as 'none' | 'bridge',
     session_key: '',
     instructions: '',
-    skillsText: '',
+    selectedSkills: [] as string[],
     taskTagsText: '',
     toolProfile: 'template' as ToolProfile,
     subagentPolicy: 'template' as 'template' | 'none' | 'allowed' | 'all',
@@ -925,7 +1001,7 @@ export function CreateAgentModal({
   type ProgressStep = { label: string; status: 'pending' | 'active' | 'done' | 'error'; error?: string }
   const [progressSteps, setProgressSteps] = useState<ProgressStep[] | null>(null)
 
-  const selectedTemplateData = TEMPLATES.find(t => t.type === selectedTemplate)
+  const selectedTemplateData = templates.find(t => t.type === selectedTemplate)
   const selectedRuntime = RUNTIME_OPTIONS.find(option => option.id === formData.runtime) || RUNTIME_OPTIONS[1]
   const groupedModels = useMemo(() => {
     const groups: Record<string, Array<{ name: string; alias?: string; provider: string }>> = {}
@@ -937,7 +1013,7 @@ export function CreateAgentModal({
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
   }, [availableModels])
 
-  const parsedSkills = formData.skillsText.split(',').map(s => s.trim()).filter(Boolean)
+  const parsedSkills = formData.selectedSkills
   const parsedTaskTags = formData.taskTagsText.split(',').map(s => s.trim()).filter(Boolean)
   const provisionOpenClawWorkspace = formData.runtime === 'openclaw' && formData.workspaceMode === 'dedicated'
   const writeToGateway = formData.runtime === 'openclaw' && formData.write_to_gateway
@@ -948,6 +1024,16 @@ export function CreateAgentModal({
   }
 
   useEffect(() => {
+    try {
+      const stored = localStorage.getItem('mc-create-agent-templates')
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (Array.isArray(parsed)) setTemplates(parsed)
+      }
+    } catch {
+      // Template customisation is optional.
+    }
+
     const loadAvailableModels = async () => {
       try {
         const response = await fetch('/api/status?action=models')
@@ -971,18 +1057,38 @@ export function CreateAgentModal({
         // Keep modal usable without model suggestions.
       }
     }
+
+    const loadAvailableSkills = async () => {
+      try {
+        const response = await fetch('/api/skills')
+        if (!response.ok) return
+        const data = await response.json()
+        const skills = Array.isArray(data.skills) ? data.skills : []
+        setAvailableSkills(skills.map((skill: any) => ({
+          name: String(skill.name || '').trim(),
+          source: skill.source ? String(skill.source) : undefined,
+          description: skill.description ? String(skill.description) : undefined,
+        })).filter((skill: { name: string }) => skill.name))
+      } catch {
+        // Keep modal usable without skill suggestions.
+      }
+    }
+
     loadAvailableModels()
+    loadAvailableSkills()
   }, [])
 
   const selectTemplate = (type: string | null) => {
     setSelectedTemplate(type)
     if (!type) return
-    const tmpl = TEMPLATES.find(t => t.type === type)
+    const tmpl = templates.find(t => t.type === type)
     if (!tmpl) return
 
-    const suggestedInstructions = `You are a ${tmpl.label.toLowerCase()} specialist. Focus on ${tmpl.theme}. Keep work scoped, document assumptions, and report clear verification steps.`
+    const id = tmpl.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     setFormData(prev => ({
       ...prev,
+      name: tmpl.label,
+      id,
       role: tmpl.theme,
       emoji: tmpl.emoji,
       modelTier: tmpl.modelTier,
@@ -993,8 +1099,27 @@ export function CreateAgentModal({
       dockerNetwork: type === 'developer' || type === 'specialist-dev' ? 'bridge' : 'none',
       toolProfile: type === 'orchestrator' ? 'orchestrator' : type === 'reviewer' || type === 'security-auditor' ? 'readonly' : type === 'researcher' ? 'research' : type === 'developer' || type === 'specialist-dev' ? 'coding' : 'template',
       subagentPolicy: type === 'orchestrator' ? 'all' : 'template',
-      instructions: prev.instructions || suggestedInstructions,
+      instructions: tmpl.instructions,
     }))
+  }
+
+  const saveSelectedTemplateDefaults = () => {
+    if (!selectedTemplate) return
+    const next = templates.map(template => template.type === selectedTemplate ? {
+      ...template,
+      label: formData.name || template.label,
+      emoji: formData.emoji || template.emoji,
+      theme: formData.role || template.theme,
+      instructions: formData.instructions || template.instructions,
+      modelTier: formData.modelTier,
+    } : template)
+    setTemplates(next)
+    try { localStorage.setItem('mc-create-agent-templates', JSON.stringify(next)) } catch {}
+  }
+
+  const resetTemplateDefaults = () => {
+    setTemplates(DEFAULT_TEMPLATES)
+    try { localStorage.removeItem('mc-create-agent-templates') } catch {}
   }
 
   const updateRuntime = (runtime: CreateAgentRuntime) => {
@@ -1182,18 +1307,18 @@ export function CreateAgentModal({
 
           {step === 1 && (
             <div className="grid grid-cols-2 gap-3">
-              {TEMPLATES.map(tmpl => (
+              {templates.map(tmpl => (
                 <Button
                   key={tmpl.type}
                   onClick={() => { selectTemplate(tmpl.type); setStep(2) }}
                   variant="outline"
-                  className={`p-4 h-auto text-left flex flex-col items-start ${selectedTemplate === tmpl.type ? 'border-primary bg-primary/5' : ''}`}
+                  className={`p-4 h-auto text-left flex flex-col items-start whitespace-normal min-w-0 ${selectedTemplate === tmpl.type ? 'border-primary bg-primary/5' : ''}`}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-2xl">{tmpl.emoji}</span>
                     <span className="font-semibold text-foreground">{tmpl.label}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground mb-2">{tmpl.description}</p>
+                  <p className="text-xs text-muted-foreground mb-2 whitespace-normal break-words">{tmpl.description}</p>
                   <div className="flex gap-2">
                     <span className={`px-2 py-0.5 text-xs rounded border ${MODEL_TIER_COLORS[tmpl.modelTier]}`}>{MODEL_TIER_LABELS[tmpl.modelTier]}</span>
                     <span className="px-2 py-0.5 text-xs rounded bg-surface-2 text-muted-foreground">{tmpl.toolCount} tools</span>
@@ -1203,7 +1328,7 @@ export function CreateAgentModal({
               <Button
                 onClick={() => { selectTemplate(null); setStep(2) }}
                 variant="outline"
-                className="p-4 h-auto text-left flex flex-col items-start border-dashed"
+                className="p-4 h-auto text-left flex flex-col items-start border-dashed whitespace-normal min-w-0"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-2xl">+</span>
@@ -1225,14 +1350,14 @@ export function CreateAgentModal({
                     key={option.id}
                     onClick={() => updateRuntime(option.id)}
                     variant="outline"
-                    className={`p-4 h-auto text-left flex flex-col items-start ${formData.runtime === option.id ? 'border-primary bg-primary/5' : ''}`}
+                    className={`p-4 h-auto text-left flex flex-col items-start whitespace-normal min-w-0 overflow-hidden ${formData.runtime === option.id ? 'border-primary bg-primary/5' : ''}`}
                   >
                     <div className="flex items-center justify-between w-full mb-2">
-                      <span className="font-semibold text-foreground">{option.label}</span>
+                      <span className="font-semibold text-foreground whitespace-normal break-words min-w-0">{option.label}</span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${option.canRunTasks ? 'bg-green-500/15 text-green-300' : 'bg-surface-2 text-muted-foreground'}`}>{option.canRunTasks ? 'task runtime' : 'profile'}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground mb-2">{option.description}</p>
-                    <p className="text-[11px] text-muted-foreground/70">{option.createsWorkspace}</p>
+                    <p className="text-xs text-muted-foreground mb-2 whitespace-normal break-words w-full">{option.description}</p>
+                    <p className="text-[11px] text-muted-foreground/70 whitespace-normal break-words w-full">{option.createsWorkspace}</p>
                   </Button>
                 ))}
               </div>
@@ -1244,35 +1369,77 @@ export function CreateAgentModal({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Display name</label>
-                  <input type="text" value={formData.name} onChange={(e) => updateName(e.target.value)} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="Frontend Astro Specialist" autoFocus />
+                  <input type="text" value={formData.name} onChange={(e) => updateName(e.target.value)} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="e.g. Orchestrator" autoFocus />
                 </div>
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Agent/profile ID</label>
-                  <input type="text" value={formData.id} onChange={(e) => setFormData(prev => ({ ...prev, id: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" placeholder="frontend-astro" />
+                  <input type="text" value={formData.id} onChange={(e) => setFormData(prev => ({ ...prev, id: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" placeholder="orchestrator" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Role / specialisation</label>
-                  <input type="text" value={formData.role} onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="Astro frontend UI specialist" />
+                  <input type="text" value={formData.role} onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="operator strategist" />
                 </div>
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Emoji</label>
-                  <input type="text" value={formData.emoji} onChange={(e) => setFormData(prev => ({ ...prev, emoji: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="🧑‍🎨" />
+                  <div className="flex items-center gap-2">
+                    <input type="text" value={formData.emoji} onChange={(e) => setFormData(prev => ({ ...prev, emoji: e.target.value }))} className="w-16 bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-center" placeholder="🧭" />
+                    <div className="flex flex-wrap gap-1">
+                      {['🧭', '🛠️', '⚙️', '🔬', '🔍', '✏️', '🛡️', '🎨', '🚀', '🧠', '📊', '🧪'].map(emoji => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, emoji }))}
+                          className={`w-8 h-8 rounded border text-lg hover:bg-primary/10 transition-colors ${formData.emoji === emoji ? 'border-primary bg-primary/10' : 'border-border bg-surface-1'}`}
+                          aria-label={`Use ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-muted-foreground mb-1">Specialised instructions</label>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <label className="block text-sm text-muted-foreground">Specialised instructions</label>
+                  <div className="flex gap-2">
+                    {selectedTemplate && (
+                      <button type="button" onClick={saveSelectedTemplateDefaults} className="text-[11px] px-2 py-1 rounded border border-primary/30 text-primary hover:bg-primary/10">
+                        Save as template default
+                      </button>
+                    )}
+                    <button type="button" onClick={resetTemplateDefaults} className="text-[11px] px-2 py-1 rounded border border-border text-muted-foreground hover:bg-surface-2">
+                      Reset templates
+                    </button>
+                  </div>
+                </div>
                 <textarea value={formData.instructions} onChange={(e) => setFormData(prev => ({ ...prev, instructions: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" rows={5} placeholder="Describe how this specialist should work, what it should optimise for, boundaries, preferred stack, review criteria…" />
+                {selectedTemplateData && <p className="text-[11px] text-muted-foreground/70 mt-1">Editing {selectedTemplateData.label}. Use “Save as template default” to keep these defaults in this browser.</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Skills allowlist</label>
-                  <input type="text" value={formData.skillsText} onChange={(e) => setFormData(prev => ({ ...prev, skillsText: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="task-decomposition, github, coding-agent" />
-                  <p className="text-[11px] text-muted-foreground/70 mt-1">Comma-separated. Empty means inherit/default behaviour.</p>
+                  <select
+                    multiple
+                    value={formData.selectedSkills}
+                    onChange={(e) => {
+                      const selected = Array.from(e.currentTarget.selectedOptions).map(option => option.value)
+                      setFormData(prev => ({ ...prev, selectedSkills: selected }))
+                    }}
+                    className="w-full min-h-28 bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-sm"
+                  >
+                    {availableSkills.map(skill => (
+                      <option key={`${skill.source || 'skill'}:${skill.name}`} value={skill.name} title={skill.description || skill.source || skill.name}>
+                        {skill.name}{skill.source ? ` · ${skill.source}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground/70 mt-1">Hold Ctrl/Cmd to select multiple. Empty means inherit/default behaviour.</p>
                 </div>
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Task tags/types</label>
