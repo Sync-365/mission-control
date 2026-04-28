@@ -48,6 +48,7 @@ export const createTaskSchema = z.object({
   feedback_rating: z.number().int().min(1).max(5).optional(),
   feedback_notes: z.string().max(5000).optional(),
   retry_count: z.number().int().min(0).optional(),
+  dispatch_attempts: z.number().int().min(0).optional(),
   completed_at: z.number().int().min(0).max(4102444800).optional(),
   tags: z.array(z.string().min(1).max(100)).max(50).default([] as string[]),
   metadata: taskMetadataSchema.default({} as Record<string, unknown>),

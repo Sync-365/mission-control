@@ -132,6 +132,7 @@ export async function PUT(
       feedback_rating,
       feedback_notes,
       retry_count,
+      dispatch_attempts,
       completed_at,
       tags,
       metadata
@@ -252,6 +253,10 @@ export async function PUT(
     if (retry_count !== undefined) {
       fieldsToUpdate.push('retry_count = ?');
       updateParams.push(retry_count);
+    }
+    if (dispatch_attempts !== undefined) {
+      fieldsToUpdate.push('dispatch_attempts = ?');
+      updateParams.push(dispatch_attempts);
     }
     if (completed_at !== undefined) {
       fieldsToUpdate.push('completed_at = ?');

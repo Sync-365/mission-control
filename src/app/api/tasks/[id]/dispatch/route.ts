@@ -37,7 +37,7 @@ export async function POST(
     const now = Math.floor(Date.now() / 1000)
     db.prepare(`
       UPDATE tasks
-      SET status = 'assigned', error_message = NULL, updated_at = ?
+      SET status = 'assigned', error_message = NULL, dispatch_attempts = 0, updated_at = ?
       WHERE id = ? AND workspace_id = ?
     `).run(now, taskId, workspaceId)
 
