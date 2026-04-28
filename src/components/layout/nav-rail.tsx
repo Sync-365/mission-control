@@ -75,7 +75,7 @@ const navGroups: NavGroup[] = [
           { id: 'gateway-config', label: 'Config', icon: <GatewayConfigIcon />, priority: false },
         ],
       },
-      { id: 'integrations', label: 'Integrations', icon: <IntegrationsIcon />, priority: false },
+      { id: 'integrations', label: 'Integrations & Env', icon: <IntegrationsIcon />, priority: false },
       { id: 'debug', label: 'Debug', icon: <DebugIcon />, priority: false },
       { id: 'settings', label: 'Settings', icon: <SettingsIcon />, priority: false, essential: true },
     ],

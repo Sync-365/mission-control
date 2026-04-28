@@ -34,7 +34,7 @@ const QUICK_NAV_COMMANDS: Array<{ panel: string; titleKey: string; title: string
   { panel: 'tokens', titleKey: 'goToTokenUsage', title: 'Go to Token Usage', aliases: ['cost', 'spend'] },
   { panel: 'logs', titleKey: 'goToLogs', title: 'Go to Logs', aliases: ['log viewer'] },
   { panel: 'memory', titleKey: 'goToMemoryBrowser', title: 'Go to Memory Browser', aliases: ['knowledge', 'notes'] },
-  { panel: 'integrations', titleKey: 'goToIntegrations', title: 'Go to Integrations', aliases: ['providers', 'api keys'] },
+  { panel: 'integrations', titleKey: 'goToIntegrations', title: 'Go to Integrations & Env', aliases: ['providers', 'api keys', 'env', 'environment variables', 'secrets'] },
   { panel: 'settings', titleKey: 'goToSettings', title: 'Go to Settings', aliases: ['preferences', 'config'] },
   { panel: 'gateways', titleKey: 'goToGateways', title: 'Go to Gateways', aliases: ['gateway manager'] },
   { panel: 'github', titleKey: 'goToGithubSync', title: 'Go to GitHub Sync', aliases: ['github', 'sync'] },

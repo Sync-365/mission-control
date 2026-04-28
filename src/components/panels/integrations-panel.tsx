@@ -21,6 +21,13 @@ interface Integration {
   recommendation?: string | null
 }
 
+interface EnvVarRow {
+  key: string
+  redacted: string
+  set: boolean
+  known: boolean
+}
+
 interface Category {
   id: string
   label: string
@@ -29,6 +36,7 @@ interface Category {
 export function IntegrationsPanel() {
   const t = useTranslations('integrations')
   const [integrations, setIntegrations] = useState<Integration[]>([])
+  const [envVars, setEnvVars] = useState<EnvVarRow[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [opAvailable, setOpAvailable] = useState(false)
   const [envPath, setEnvPath] = useState<string | null>(null)
@@ -45,6 +53,8 @@ export function IntegrationsPanel() {
   const [pulling, setPulling] = useState<string | null>(null) // integration id being pulled
   const [pullingAll, setPullingAll] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<{ integrationId: string; keys: string[] } | null>(null)
+  const [newEnvKey, setNewEnvKey] = useState('')
+  const [newEnvValue, setNewEnvValue] = useState('')
 
   const showFeedback = (ok: boolean, text: string) => {
     setFeedback({ ok, text })
@@ -64,6 +74,7 @@ export function IntegrationsPanel() {
       }
       const data = await res.json()
       setIntegrations(data.integrations || [])
+      setEnvVars(data.envVars || [])
       setCategories(data.categories || [])
       setOpAvailable(data.opAvailable ?? false)
       setEnvPath(data.envPath ?? null)
@@ -85,6 +96,18 @@ export function IntegrationsPanel() {
 
   const handleEdit = (envKey: string, value: string) => {
     setEdits(prev => ({ ...prev, [envKey]: value }))
+  }
+
+  const handleAddEnv = () => {
+    const key = newEnvKey.trim().toUpperCase()
+    if (!key) return
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) {
+      showFeedback(false, 'Use env names like GITHUB_TOKEN or MC_URL')
+      return
+    }
+    handleEdit(key, newEnvValue)
+    setNewEnvKey('')
+    setNewEnvValue('')
   }
 
   const cancelEdit = (envKey: string) => {
@@ -303,6 +326,25 @@ export function IntegrationsPanel() {
         </div>
       </div>
 
+      {/* Runtime env summary */}
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground">Shared env</div>
+          <div className="mt-1 text-sm font-medium text-foreground">{envVars.length} variables</div>
+          <p className="mt-1 text-2xs text-muted-foreground">Loaded from OpenClaw env and passed to task runtimes.</p>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground">Runtime aliases</div>
+          <div className="mt-1 text-sm font-medium text-foreground">GITHUB_TOKEN ↔ GH_TOKEN</div>
+          <p className="mt-1 text-2xs text-muted-foreground">Agents receive common aliases plus MC_URL defaults.</p>
+        </div>
+        <div className="rounded-lg border border-border bg-card p-3">
+          <div className="text-2xs uppercase tracking-wide text-muted-foreground">Agent tools</div>
+          <div className="mt-1 text-sm font-medium text-foreground">PATH normalised</div>
+          <p className="mt-1 text-2xs text-muted-foreground">Homebrew, npm-global, local bin, and system paths are included.</p>
+        </div>
+      </div>
+
       {/* Feedback */}
       {feedback && (
         <div className={`rounded-lg p-3 text-xs font-medium ${
@@ -369,6 +411,87 @@ export function IntegrationsPanel() {
             {t('noIntegrationsInCategory')}
           </div>
         )}
+      </div>
+
+      {/* All env vars */}
+      <div className="bg-card border border-border rounded-lg p-4 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Environment Variables</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Manage every key in the shared runtime env. Values are redacted after saving and are passed to task agents.
+            </p>
+          </div>
+          {envPath && <span className="text-2xs font-mono text-muted-foreground/60 truncate max-w-xs">{envPath}</span>}
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-[minmax(180px,1fr)_minmax(220px,1.5fr)_auto]">
+          <input
+            value={newEnvKey}
+            onChange={(e) => setNewEnvKey(e.target.value)}
+            placeholder="NEW_ENV_KEY"
+            className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:border-primary focus:outline-none font-mono uppercase"
+            autoComplete="off"
+            data-1p-ignore
+          />
+          <input
+            type="password"
+            value={newEnvValue}
+            onChange={(e) => setNewEnvValue(e.target.value)}
+            placeholder="Value"
+            className="px-2 py-1.5 text-xs bg-background border border-border rounded focus:border-primary focus:outline-none font-mono"
+            autoComplete="off"
+            data-1p-ignore
+          />
+          <Button onClick={handleAddEnv} size="sm" variant="outline" disabled={!newEnvKey.trim()}>
+            Add variable
+          </Button>
+        </div>
+
+        <div className="space-y-1 max-h-[420px] overflow-auto pr-1">
+          {envVars.map(envVar => {
+            const isEditing = edits[envVar.key] !== undefined
+            const isRevealed = revealed.has(envVar.key)
+            return (
+              <div key={envVar.key} className="flex items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1.5">
+                <span className="text-2xs font-mono text-muted-foreground/80 w-56 truncate" title={envVar.key}>{envVar.key}</span>
+                <span className={`text-2xs px-1.5 py-0.5 rounded ${envVar.known ? 'bg-blue-500/10 text-blue-400' : 'bg-muted text-muted-foreground'}`}>
+                  {envVar.known ? 'integration' : 'custom'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  {isEditing ? (
+                    <input
+                      type={isRevealed ? 'text' : 'password'}
+                      value={edits[envVar.key]}
+                      onChange={e => handleEdit(envVar.key, e.target.value)}
+                      className="w-full px-2 py-1 text-xs bg-background border border-primary/50 rounded focus:border-primary focus:outline-none font-mono"
+                      autoComplete="off"
+                      data-1p-ignore
+                    />
+                  ) : (
+                    <span className="text-xs font-mono text-muted-foreground">{envVar.set ? envVar.redacted : 'not set'}</span>
+                  )}
+                </div>
+                {isEditing && (
+                  <Button onClick={() => toggleReveal(envVar.key)} title={isRevealed ? 'Hide value' : 'Show value'} variant="ghost" size="icon-xs" className="w-6 h-6">
+                    {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
+                  </Button>
+                )}
+                {!isEditing ? (
+                  <Button onClick={() => handleEdit(envVar.key, '')} title="Edit value" variant="ghost" size="icon-xs" className="w-6 h-6"><EditIcon /></Button>
+                ) : (
+                  <Button onClick={() => cancelEdit(envVar.key)} title="Cancel edit" variant="ghost" size="icon-xs" className="w-6 h-6 hover:text-destructive"><XIcon /></Button>
+                )}
+                <Button onClick={() => confirmAndRemove('env', [envVar.key])} variant="ghost" size="xs" className="text-2xs hover:text-destructive">
+                  Remove
+                </Button>
+              </div>
+            )
+          })}
+          {envVars.length === 0 && (
+            <div className="text-xs text-muted-foreground text-center py-6">No variables saved yet.</div>
+          )}
+        </div>
       </div>
 
       {/* Unsaved changes bar */}

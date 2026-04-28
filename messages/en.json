@@ -101,7 +101,7 @@
     "gateway": "Gateway",
     "gateways": "Gateways",
     "config": "Config",
-    "integrations": "Integrations",
+    "integrations": "Integrations & Env",
     "debug": "Debug",
     "settings": "Settings",
     "group": {
@@ -192,7 +192,7 @@
     "goToTokenUsage": "Go to Token Usage",
     "goToLogs": "Go to Logs",
     "goToMemoryBrowser": "Go to Memory Browser",
-    "goToIntegrations": "Go to Integrations",
+    "goToIntegrations": "Go to Integrations & Env",
     "goToSettings": "Go to Settings",
     "goToGateways": "Go to Gateways",
     "goToGithubSync": "Go to GitHub Sync",
@@ -414,7 +414,7 @@
     "accounts": "{count, plural, one {Accounts ({count})} other {Accounts ({count})}}"
   },
   "integrations": {
-    "title": "Integrations",
+    "title": "Integrations & Env",
     "loading": "Loading integrations...",
     "connectedCount": "{connected} of {total} connected",
     "pullAll": "Pull All",

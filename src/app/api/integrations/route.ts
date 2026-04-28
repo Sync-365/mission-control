@@ -451,8 +451,20 @@ export async function GET(request: NextRequest) {
     }
   })
 
+  const knownEnvVars = new Set(allIntegrations.flatMap(def => def.envVars))
+  const envVars = envData.lines
+    .filter((line): line is EnvLine & { key: string; value: string } => line.type === 'var' && Boolean(line.key))
+    .map(line => ({
+      key: line.key,
+      redacted: redactValue(line.value || ''),
+      set: isConfiguredValue(line.key, line.value || ''),
+      known: knownEnvVars.has(line.key),
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key))
+
   return NextResponse.json({
     integrations,
+    envVars,
     categories: Object.entries(allCategories)
       .sort(([, a], [, b]) => a.order - b.order)
       .map(([id, meta]) => ({ id, label: meta.label })),
@@ -529,9 +541,11 @@ export async function DELETE(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  let body: any
-  try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-  const keysParam = Array.isArray(body.keys) ? body.keys.join(',') : body.keys
+  let body: any = null
+  try { body = await request.json() } catch { body = null }
+  const url = new URL(request.url)
+  const bodyKeys = Array.isArray(body?.keys) ? body.keys.join(',') : body?.keys
+  const keysParam = bodyKeys || url.searchParams.get('keys')
   if (!keysParam) {
     return NextResponse.json({ error: 'keys parameter required (comma-separated string or array)' }, { status: 400 })
   }
