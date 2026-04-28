@@ -151,17 +151,28 @@ function countAssistantMessages(messages: unknown[]): number {
 
 async function waitForSessionReply(sessionKey: string, baselineAssistantCount: number, timeoutMs: number): Promise<{ text: string | null }> {
   const started = Date.now()
+  let lastHistoryError: unknown = null
   while ((Date.now() - started) < timeoutMs) {
-    const history = await callOpenClawGateway<{ messages?: unknown[] }>('chat.history', { sessionKey, limit: 50 }, 15000)
-    const messages = Array.isArray(history?.messages) ? history.messages : []
-    const assistantCount = countAssistantMessages(messages)
-    if (assistantCount > baselineAssistantCount) {
-      return { text: getLastAssistantText(messages) }
+    try {
+      const history = await callOpenClawGateway<{ messages?: unknown[] }>('chat.history', { sessionKey, limit: 50 }, 30000)
+      lastHistoryError = null
+      const messages = Array.isArray(history?.messages) ? history.messages : []
+      const assistantCount = countAssistantMessages(messages)
+      if (assistantCount > baselineAssistantCount) {
+        return { text: getLastAssistantText(messages) }
+      }
+    } catch (err) {
+      // A busy gateway can transiently time out history reads while the agent is
+      // still running. Do not immediately fail the Mission Control task after
+      // chat.send has already started the run; keep polling until the overall
+      // task timeout expires.
+      lastHistoryError = err
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500))
+    await new Promise((resolve) => setTimeout(resolve, 2000))
   }
 
-  throw new Error(`Timed out waiting for OpenClaw session reply from ${sessionKey}`)
+  const suffix = lastHistoryError instanceof Error ? ` Last history error: ${lastHistoryError.message}` : ''
+  throw new Error(`Timed out waiting for OpenClaw session reply from ${sessionKey}.${suffix}`)
 }
 
 function resolveOpenClawModel(task: RuntimeDispatchTask): string | null {
@@ -210,7 +221,7 @@ async function dispatchOpenClaw(task: RuntimeDispatchTask, prompt: string): Prom
     if (status !== 'started' && status !== 'ok' && status !== 'in_flight') {
       throw new Error(`chat.send to session ${targetSession} returned status: ${status}`)
     }
-    const reply = await waitForSessionReply(targetSession, baselineAssistantCount, Number(cfg.timeoutMs || 125000))
+    const reply = await waitForSessionReply(targetSession, baselineAssistantCount, Number(cfg.timeoutMs || 600000))
     return {
       text: reply.text,
       sessionId: targetSession,
