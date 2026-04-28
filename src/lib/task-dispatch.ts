@@ -104,6 +104,17 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
   }
 
   try {
+    const meta = task.metadata ? JSON.parse(task.metadata) : {}
+    const dispatchModel = typeof meta.dispatch_model === 'string' ? meta.dispatch_model : typeof meta.model === 'string' ? meta.model : ''
+    const thinking = typeof meta.thinking === 'string' ? meta.thinking : ''
+    if (dispatchModel || thinking) {
+      lines.push('', '## Runtime Preferences')
+      if (dispatchModel) lines.push(`Requested model: ${dispatchModel}`)
+      if (thinking) lines.push(`Requested thinking level: ${thinking}`)
+    }
+  } catch { /* optional runtime hints */ }
+
+  try {
     const db = getDatabase()
     const comments = db.prepare(`
       SELECT author, content

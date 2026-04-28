@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useMissionControl } from '@/store'
+import { useMissionControl, type ModelConfig } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 
 import { createClientLogger } from '@/lib/client-logger'
@@ -1168,6 +1168,7 @@ export function TaskBoardPanel() {
         <CreateTaskModal
           agents={agents}
           projects={projects}
+          availableModels={availableModels}
           onClose={() => setShowCreateModal(false)}
           onCreated={fetchData}
         />
@@ -1179,6 +1180,7 @@ export function TaskBoardPanel() {
           task={editingTask}
           agents={agents}
           projects={projects}
+          availableModels={availableModels}
           onClose={() => setEditingTask(null)}
           onUpdated={() => { fetchData(); setEditingTask(null) }}
         />
@@ -2050,11 +2052,13 @@ function HermesCronSection() {
 function CreateTaskModal({
   agents, 
   projects,
+  availableModels,
   onClose, 
   onCreated 
 }: { 
   agents: Agent[]
   projects: Project[]
+  availableModels: ModelConfig[]
   onClose: () => void
   onCreated: () => void
 }) {
@@ -2066,6 +2070,8 @@ function CreateTaskModal({
     assigned_to: '',
     tags: '',
     target_session: '',
+    dispatch_model: '',
+    thinking: '',
   })
   const t = useTranslations('taskBoard')
   const agentSessions = useAgentSessions(formData.assigned_to || undefined)
@@ -2112,6 +2118,12 @@ function CreateTaskModal({
     }
     if (formData.target_session) {
       metadata.target_session = formData.target_session
+    }
+    if (formData.dispatch_model) {
+      metadata.dispatch_model = formData.dispatch_model
+    }
+    if (formData.thinking) {
+      metadata.thinking = formData.thinking
     }
 
     try {
@@ -2244,6 +2256,37 @@ function CreateTaskModal({
               </div>
             )}
 
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="create-dispatch-model" className="block text-sm text-muted-foreground mb-1">Model</label>
+                <select
+                  id="create-dispatch-model"
+                  value={formData.dispatch_model}
+                  onChange={(e) => setFormData(prev => ({ ...prev, dispatch_model: e.target.value }))}
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="">Agent default</option>
+                  {availableModels.map(model => (
+                    <option key={model.alias} value={model.alias}>{model.alias}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="create-thinking" className="block text-sm text-muted-foreground mb-1">Thinking</label>
+                <select
+                  id="create-thinking"
+                  value={formData.thinking}
+                  onChange={(e) => setFormData(prev => ({ ...prev, thinking: e.target.value }))}
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="">Agent default</option>
+                  <option value="low">Light</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">Deep</option>
+                </select>
+              </div>
+            </div>
+
             <div>
               <label htmlFor="create-tags" className="block text-sm text-muted-foreground mb-1">{t('fieldTags')}</label>
               <input
@@ -2315,12 +2358,14 @@ function EditTaskModal({
   task,
   agents,
   projects,
+  availableModels,
   onClose,
   onUpdated
 }: {
   task: Task
   agents: Agent[]
   projects: Project[]
+  availableModels: ModelConfig[]
   onClose: () => void
   onUpdated: () => void
 }) {
@@ -2334,6 +2379,8 @@ function EditTaskModal({
     assigned_to: task.assigned_to || '',
     tags: task.tags ? task.tags.join(', ') : '',
     target_session: task.metadata?.target_session || '',
+    dispatch_model: task.metadata?.dispatch_model || '',
+    thinking: task.metadata?.thinking || '',
   })
   const mentionTargets = useMentionTargets()
   const agentSessions = useAgentSessions(formData.assigned_to || undefined)
@@ -2350,6 +2397,16 @@ function EditTaskModal({
         updatedMeta.target_session = formData.target_session
       } else {
         delete updatedMeta.target_session
+      }
+      if (formData.dispatch_model) {
+        updatedMeta.dispatch_model = formData.dispatch_model
+      } else {
+        delete updatedMeta.dispatch_model
+      }
+      if (formData.thinking) {
+        updatedMeta.thinking = formData.thinking
+      } else {
+        delete updatedMeta.thinking
       }
 
       const response = await fetch(`/api/tasks/${task.id}`, {
@@ -2496,6 +2553,37 @@ function EditTaskModal({
                 <p className="text-[11px] text-muted-foreground mt-1">Send task to an existing agent session instead of creating a new one.</p>
               </div>
             )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="edit-dispatch-model" className="block text-sm text-muted-foreground mb-1">Model</label>
+                <select
+                  id="edit-dispatch-model"
+                  value={formData.dispatch_model}
+                  onChange={(e) => setFormData(prev => ({ ...prev, dispatch_model: e.target.value }))}
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="">Agent default</option>
+                  {availableModels.map(model => (
+                    <option key={model.alias} value={model.alias}>{model.alias}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="edit-thinking" className="block text-sm text-muted-foreground mb-1">Thinking</label>
+                <select
+                  id="edit-thinking"
+                  value={formData.thinking}
+                  onChange={(e) => setFormData(prev => ({ ...prev, thinking: e.target.value }))}
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="">Agent default</option>
+                  <option value="low">Light</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">Deep</option>
+                </select>
+              </div>
+            </div>
 
             <div>
               <label htmlFor="edit-tags" className="block text-sm text-muted-foreground mb-1">{t('fieldTags')}</label>

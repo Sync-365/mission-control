@@ -166,8 +166,19 @@ async function waitForSessionReply(sessionKey: string, baselineAssistantCount: n
 
 function resolveOpenClawModel(task: RuntimeDispatchTask): string | null {
   const cfg = getAgentConfig(task)
+  const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
+  if (typeof meta.dispatch_model === 'string' && meta.dispatch_model) return meta.dispatch_model
+  if (typeof meta.model === 'string' && meta.model) return meta.model
   if (typeof cfg.dispatchModel === 'string' && cfg.dispatchModel) return cfg.dispatchModel
   if (typeof cfg.model === 'string' && cfg.model) return cfg.model
+  return null
+}
+
+function resolveTaskThinking(task: RuntimeDispatchTask): string | null {
+  const cfg = getAgentConfig(task)
+  const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
+  if (typeof meta.thinking === 'string' && meta.thinking) return meta.thinking
+  if (typeof cfg.thinking === 'string' && cfg.thinking) return cfg.thinking
   return null
 }
 
@@ -214,7 +225,9 @@ async function dispatchOpenClaw(task: RuntimeDispatchTask, prompt: string): Prom
     deliver: false,
   }
   const dispatchModel = resolveOpenClawModel(task)
+  const thinking = resolveTaskThinking(task)
   if (dispatchModel) invokeParams.model = dispatchModel
+  if (thinking) invokeParams.thinking = thinking
 
   const finalResult = await runOpenClaw(
     ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
@@ -235,8 +248,9 @@ async function dispatchOpenClaw(task: RuntimeDispatchTask, prompt: string): Prom
 
 async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promise<RuntimeDispatchResult> {
   const cfg = getAgentConfig(task)
+  const dispatchModel = resolveOpenClawModel(task)
   const args = ['-z', prompt]
-  if (typeof cfg.model === 'string' && cfg.model) args.push('--model', cfg.model)
+  if (dispatchModel) args.push('--model', dispatchModel)
   if (typeof cfg.provider === 'string' && cfg.provider) args.push('--provider', cfg.provider)
   if (typeof cfg.skills === 'string' && cfg.skills) args.push('--skills', cfg.skills)
   if (cfg.yolo === true) args.push('--yolo')
@@ -251,15 +265,16 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
     text: result.stdout.trim() || null,
     sessionId: null,
     runtime: 'hermes',
-    model: typeof cfg.model === 'string' ? cfg.model : null,
+    model: dispatchModel,
     provider: typeof cfg.provider === 'string' ? cfg.provider : null,
   }
 }
 
 async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promise<RuntimeDispatchResult> {
   const cfg = getAgentConfig(task)
+  const dispatchModel = resolveOpenClawModel(task)
   const args = ['-p', '--output-format', 'json']
-  if (typeof cfg.model === 'string' && cfg.model) args.push('--model', cfg.model)
+  if (dispatchModel) args.push('--model', dispatchModel)
   if (cfg.allowEdits === true || cfg.yolo === true) {
     args.push('--dangerously-skip-permissions')
   }
@@ -275,7 +290,7 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
     text: parsed?.result ? String(parsed.result).trim() : result.stdout.trim() || null,
     sessionId: typeof parsed?.session_id === 'string' ? parsed.session_id : null,
     runtime: 'claude',
-    model: typeof parsed?.model === 'string' ? parsed.model : (typeof cfg.model === 'string' ? cfg.model : null),
+    model: typeof parsed?.model === 'string' ? parsed.model : dispatchModel,
     provider: 'anthropic',
     metadata: parsed ? { raw: parsed } : undefined,
   }
@@ -283,8 +298,9 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
 
 async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise<RuntimeDispatchResult> {
   const cfg = getAgentConfig(task)
+  const dispatchModel = resolveOpenClawModel(task)
   const args = ['exec', '--skip-git-repo-check', '-C', resolveTaskWorkingDir(task), '--json']
-  if (typeof cfg.model === 'string' && cfg.model) args.push('--model', cfg.model)
+  if (dispatchModel) args.push('--model', dispatchModel)
   if (cfg.allowEdits === true || cfg.yolo === true) {
     args.push('--sandbox', 'workspace-write', '--ask-for-approval', 'never')
   }
@@ -315,7 +331,7 @@ async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise
     text: finalText || result.stdout.trim() || null,
     sessionId: sessionIdMatch?.[1] || null,
     runtime: 'codex',
-    model: typeof cfg.model === 'string' ? cfg.model : null,
+    model: dispatchModel,
     provider: 'openai',
     metadata: {
       stdoutPreview: result.stdout.slice(0, 1000),
