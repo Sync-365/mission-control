@@ -29,10 +29,12 @@ export function runCommand(
 
     let stdout = ''
     let stderr = ''
+    let timedOut = false
     let timeoutId: NodeJS.Timeout | undefined
 
     if (options.timeoutMs) {
       timeoutId = setTimeout(() => {
+        timedOut = true
         child.kill('SIGKILL')
       }, options.timeoutMs)
     }
@@ -60,8 +62,13 @@ export function runCommand(
         resolve({ stdout, stderr, code })
         return
       }
+      const argsPreview = args.join(' ').slice(0, 500)
+      const output = (stderr || stdout || '').trim()
+      const outputPreview = output ? `: ${output.slice(0, 4000)}` : ''
       const error = new Error(
-        `Command failed (${command} ${args.join(' ')}): ${stderr || stdout}`
+        timedOut
+          ? `Command timed out after ${options.timeoutMs}ms (${command} ${argsPreview})${outputPreview}`
+          : `Command failed (${command} ${argsPreview})${outputPreview}`
       )
       ;(error as any).stdout = stdout
       ;(error as any).stderr = stderr

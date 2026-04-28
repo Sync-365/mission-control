@@ -359,7 +359,7 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
   const result = await runCommand('hermes', args, {
     cwd: resolveTaskWorkingDir(task),
     env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 180000),
+    timeoutMs: Number(cfg.timeoutMs || 600000),
   })
 
   return {
@@ -384,7 +384,7 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
   const result = await runCommand('claude', args, {
     cwd: resolveTaskWorkingDir(task),
     env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 180000),
+    timeoutMs: Number(cfg.timeoutMs || 600000),
   })
 
   const parsed = parseGatewayJson(result.stdout) || safeJsonParse<any>(result.stdout, null)
@@ -411,7 +411,7 @@ async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise
   const result = await runCommand('codex', args, {
     cwd: resolveTaskWorkingDir(task),
     env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 180000),
+    timeoutMs: Number(cfg.timeoutMs || 600000),
   })
 
   const sessionIdMatch = result.stdout.match(/"thread_id":"([^"]+)"/)
