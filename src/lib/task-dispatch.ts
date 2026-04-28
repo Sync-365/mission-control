@@ -44,6 +44,7 @@ interface DispatchableTask {
   project_ticket_no: number | null
   project_id: number | null
   project_name?: string | null
+  project_description?: string | null
   project_slug?: string | null
   project_github_repo?: string | null
   project_metadata?: string | null
@@ -160,7 +161,19 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
       task.project_name ? `Project: ${task.project_name}` : `Project ID: ${task.project_id}`,
       `Shared project directory: ${projectWorkdir}`,
     )
+    if (task.project_description?.trim()) lines.push('', 'Project goal / brief:', task.project_description.trim())
     if (task.project_github_repo) lines.push(`GitHub repo: ${task.project_github_repo}`)
+    try {
+      const meta = task.metadata ? JSON.parse(task.metadata) : {}
+      const sourcePlan = typeof meta.source_plan_path === 'string' ? meta.source_plan_path : ''
+      const sourceTask = meta.source_task_id != null ? String(meta.source_task_id) : ''
+      if (sourcePlan || sourceTask) {
+        lines.push('', '## Source / Reference Context')
+        if (sourceTask) lines.push(`Created from Mission Control task: ${sourceTask}`)
+        if (sourcePlan) lines.push(`Reference plan file: ${sourcePlan}`)
+        lines.push('Read the relevant plan/audit files in the shared project directory before implementing if the task depends on prior planning decisions.')
+      }
+    } catch { /* optional task metadata */ }
     lines.push('Use the shared project directory for project plans, audits, notes, and any files other project tasks need to see.')
   }
 
@@ -816,7 +829,7 @@ export async function dispatchAssignedTasks(taskId?: number): Promise<{ ok: bool
   const tasks = db.prepare(`
     SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
            a.runtime_type as agent_runtime_type, a.session_key as agent_session_key,
-           p.ticket_prefix, p.name as project_name, p.slug as project_slug,
+           p.ticket_prefix, p.name as project_name, p.description as project_description, p.slug as project_slug,
            p.github_repo as project_github_repo, p.metadata as project_metadata, t.project_ticket_no
     FROM tasks t
     JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
