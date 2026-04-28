@@ -16,12 +16,17 @@ const FOCUSABLE_SELECTOR = [
 export function useFocusTrap(onClose?: () => void) {
   const containerRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && onClose) {
+      if (e.key === 'Escape' && onCloseRef.current) {
         e.stopPropagation()
-        onClose()
+        onCloseRef.current()
         return
       }
 
@@ -51,7 +56,7 @@ export function useFocusTrap(onClose?: () => void) {
         }
       }
     },
-    [onClose]
+    []
   )
 
   useEffect(() => {

@@ -69,8 +69,10 @@ export function runCommand(
       reject(error)
     })
 
-    if (options.input) {
-      child.stdin.write(options.input)
+    if (options.input !== undefined) {
+      if (options.input) child.stdin.write(options.input)
+      child.stdin.end()
+    } else {
       child.stdin.end()
     }
   })

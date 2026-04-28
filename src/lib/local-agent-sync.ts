@@ -9,6 +9,10 @@
  *
  * A directory counts as an agent if it contains one of:
  *   AGENT.md, agent.md, soul.md, identity.md, config.json, agent.json
+ *
+ * Important: skill directories are not agents. In particular, Hermes skills under
+ * ~/.hermes/skills often contain SKILL.md and should not be imported into the
+ * agent roster.
  */
 
 import { createHash } from 'node:crypto'
@@ -44,7 +48,7 @@ interface AgentRow {
 }
 
 // Detection files — order matters: first found wins for role extraction
-const IDENTITY_FILES = ['soul.md', 'AGENT.md', 'agent.md', 'identity.md', 'SKILL.md']
+const IDENTITY_FILES = ['soul.md', 'AGENT.md', 'agent.md', 'identity.md']
 const CONFIG_FILES = ['config.json', 'agent.json']
 const ALL_MARKERS = [...IDENTITY_FILES, ...CONFIG_FILES]
 
@@ -103,7 +107,6 @@ function getLocalAgentRoots(): string[] {
     join(home, '.agents'),
     join(home, '.codex', 'agents'),
     join(home, '.claude', 'agents'),
-    join(home, '.hermes', 'skills'),
   ]
 }
 

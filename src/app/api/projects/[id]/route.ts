@@ -7,10 +7,20 @@ import {
   ensureTenantWorkspaceAccess,
   ForbiddenError
 } from '@/lib/workspaces'
+import { PROJECT_WORKDIR_META_KEY, safeParseProjectMetadata, withResolvedProjectWorkdir } from '@/lib/project-workdir'
 
 function normalizePrefix(input: string): string {
   const normalized = input.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
   return normalized.slice(0, 12)
+}
+
+function slugify(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
 }
 
 function toProjectId(raw: string): number {
@@ -51,7 +61,7 @@ export async function GET(
 
     const row = db.prepare(`
       SELECT p.id, p.workspace_id, p.name, p.slug, p.description, p.ticket_prefix, p.ticket_counter, p.status,
-             p.github_repo, p.deadline, p.color, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
+             p.github_repo, p.deadline, p.color, p.metadata, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
              (SELECT GROUP_CONCAT(paa.agent_name) FROM project_agent_assignments paa WHERE paa.project_id = p.id) as assigned_agents_csv
       FROM projects p
@@ -60,7 +70,7 @@ export async function GET(
     if (!row) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
     const project = {
-      ...row,
+      ...withResolvedProjectWorkdir(row),
       assigned_agents: row.assigned_agents_csv ? String(row.assigned_agents_csv).split(',') : [],
       assigned_agents_csv: undefined,
     }
@@ -128,6 +138,17 @@ export async function PATCH(
       updates.push('name = ?')
       paramsList.push(name)
     }
+    if ((typeof body?.slug === 'string' || typeof body?.project_slug === 'string') && current.slug !== 'general') {
+      const slug = slugify(String(body.slug ?? body.project_slug))
+      if (!slug) return NextResponse.json({ error: 'Invalid project slug' }, { status: 400 })
+      const conflict = db.prepare(`
+        SELECT id FROM projects
+        WHERE workspace_id = ? AND slug = ? AND id != ?
+      `).get(workspaceId, slug, projectId)
+      if (conflict) return NextResponse.json({ error: 'Project slug already in use' }, { status: 409 })
+      updates.push('slug = ?')
+      paramsList.push(slug)
+    }
     if (typeof body?.description === 'string') {
       updates.push('description = ?')
       paramsList.push(body.description.trim() || null)
@@ -173,6 +194,14 @@ export async function PATCH(
       updates.push('github_labels_initialized = ?')
       paramsList.push(body.github_labels_initialized ? 1 : 0)
     }
+    if (body?.project_workdir !== undefined) {
+      const metadata = safeParseProjectMetadata(current.metadata)
+      const workdir = typeof body.project_workdir === 'string' ? body.project_workdir.trim() : ''
+      if (workdir) metadata[PROJECT_WORKDIR_META_KEY] = workdir
+      else delete metadata[PROJECT_WORKDIR_META_KEY]
+      updates.push('metadata = ?')
+      paramsList.push(JSON.stringify(metadata))
+    }
 
     if (updates.length === 0) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
 
@@ -183,12 +212,14 @@ export async function PATCH(
       WHERE id = ? AND workspace_id = ?
     `).run(...paramsList, projectId, workspaceId)
 
-    const project = db.prepare(`
+    const projectRow = db.prepare(`
       SELECT id, workspace_id, name, slug, description, ticket_prefix, ticket_counter, status,
-             github_repo, deadline, color, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at
+             github_repo, deadline, color, metadata, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at
       FROM projects
       WHERE id = ? AND workspace_id = ?
-    `).get(projectId, workspaceId)
+    `).get(projectId, workspaceId) as Record<string, unknown>
+
+    const project = withResolvedProjectWorkdir(projectRow)
 
     return NextResponse.json({ project })
   } catch (error) {

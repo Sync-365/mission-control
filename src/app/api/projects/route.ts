@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { ensureTenantWorkspaceAccess, ForbiddenError } from '@/lib/workspaces'
+import { withResolvedProjectWorkdir } from '@/lib/project-workdir'
 
 function slugify(input: string): string {
   return input
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
 
     const rows = db.prepare(`
       SELECT p.id, p.workspace_id, p.name, p.slug, p.description, p.ticket_prefix, p.ticket_counter, p.status,
-             p.github_repo, p.deadline, p.color, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
+             p.github_repo, p.deadline, p.color, p.metadata, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
              (SELECT GROUP_CONCAT(paa.agent_name) FROM project_agent_assignments paa WHERE paa.project_id = p.id) as assigned_agents_csv
       FROM projects p
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
     `).all(workspaceId) as Array<Record<string, unknown>>
 
     const projects = rows.map(row => ({
-      ...row,
+      ...withResolvedProjectWorkdir(row),
       assigned_agents: row.assigned_agents_csv ? String(row.assigned_agents_csv).split(',') : [],
       assigned_agents_csv: undefined,
     }))
@@ -114,12 +115,13 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', unixepoch(), unixepoch())
     `).run(workspaceId, name, slug, description || null, ticketPrefix, githubRepo, deadline, color)
 
-    const project = db.prepare(`
+    const projectRow = db.prepare(`
       SELECT id, workspace_id, name, slug, description, ticket_prefix, ticket_counter, status,
-             github_repo, deadline, color, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at
+             github_repo, deadline, color, metadata, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at
       FROM projects
       WHERE id = ?
-    `).get(Number(result.lastInsertRowid))
+    `).get(Number(result.lastInsertRowid)) as Record<string, unknown>
+    const project = withResolvedProjectWorkdir(projectRow)
 
     return NextResponse.json({ project }, { status: 201 })
   } catch (error) {

@@ -16,6 +16,8 @@ export const MODEL_CATALOG: ModelConfig[] = [
   { alias: 'gpt-4.1-mini', name: 'openai/gpt-4.1-mini', provider: 'openai', description: 'GPT-4.1 Mini, fast + cheap', costPer1k: 0.4 },
   { alias: 'gpt-4.1-nano', name: 'openai/gpt-4.1-nano', provider: 'openai', description: 'GPT-4.1 Nano, ultra-fast', costPer1k: 0.1 },
   { alias: 'codex-mini', name: 'openai/codex-mini-latest', provider: 'openai', description: 'Codex Mini, optimized for code', costPer1k: 1.5 },
+  { alias: 'gpt-5.4', name: 'openai-codex/gpt-5.4', provider: 'openai-codex', description: 'OpenAI Codex GPT-5.4', costPer1k: 0.0 },
+  { alias: 'gpt-5.5', name: 'openai-codex/gpt-5.5', provider: 'openai-codex', description: 'OpenAI Codex GPT-5.5', costPer1k: 0.0 },
   // Google
   { alias: 'gemini-2.5-pro', name: 'google/gemini-2.5-pro', provider: 'google', description: 'Gemini 2.5 Pro', costPer1k: 1.25 },
   { alias: 'gemini-2.5-flash', name: 'google/gemini-2.5-flash', provider: 'google', description: 'Gemini 2.5 Flash, fast', costPer1k: 0.15 },

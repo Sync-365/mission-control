@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
@@ -19,6 +19,88 @@ const HERMES_HOME = existsSync(join(dataDir, '.hermes'))
     : join(dataDir, '.hermes') // default to dataDir for new installs
 const HOOK_DIR = join(HERMES_HOME, 'hooks', 'mission-control')
 
+function parseHermesYamlValue(raw: string, keyPath: string): string | null {
+  const escaped = keyPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\./g, '\\s*:\\s*[^\n]*\n(?:\\s+[^\n]*\n)*?')
+  void escaped
+  const lines = raw.split('\n')
+  if (keyPath === 'model.provider' || keyPath === 'model.default') {
+    let inModel = false
+    for (const line of lines) {
+      if (/^model:\s*$/.test(line.trim())) { inModel = true; continue }
+      if (inModel && /^\S/.test(line)) break
+      if (!inModel) continue
+      const m = line.match(/^\s+(provider|default):\s*(.+)\s*$/)
+      if (m && `model.${m[1]}` === keyPath) return m[2].trim()
+    }
+  }
+  return null
+}
+
+function getHermesProviderStatus() {
+  const result = {
+    provider: null as string | null,
+    model: null as string | null,
+    providerConfigured: false,
+    providerAuthenticated: false,
+    authType: null as 'oauth' | 'api_key' | null,
+  }
+
+  try {
+    const configPath = join(HERMES_HOME, 'config.yaml')
+    if (existsSync(configPath)) {
+      const raw = readFileSync(configPath, 'utf8')
+      const provider = parseHermesYamlValue(raw, 'model.provider')
+      const model = parseHermesYamlValue(raw, 'model.default')
+      result.provider = provider
+      result.model = model
+      result.providerConfigured = Boolean(provider && model)
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    const authPath = join(HERMES_HOME, 'auth.json')
+    if (existsSync(authPath)) {
+      const auth = JSON.parse(readFileSync(authPath, 'utf8')) as { providers?: Record<string, unknown> }
+      if (result.provider && auth?.providers && auth.providers[result.provider]) {
+        result.providerAuthenticated = true
+        result.authType = 'oauth'
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!result.providerAuthenticated && result.provider) {
+    try {
+      const envPath = join(HERMES_HOME, '.env')
+      const envRaw = existsSync(envPath) ? readFileSync(envPath, 'utf8') : ''
+      const envMap: Record<string, string> = {
+        anthropic: 'ANTHROPIC_API_KEY',
+        openai: 'OPENAI_API_KEY',
+        'openai-codex': 'OPENAI_API_KEY',
+        openrouter: 'OPENROUTER_API_KEY',
+        nous: 'NOUS_API_KEY',
+        google: 'GOOGLE_API_KEY',
+        xai: 'XAI_API_KEY',
+      }
+      const envKey = envMap[result.provider]
+      if (envKey) {
+        const regex = new RegExp(`^${envKey}=.+$`, 'm')
+        if (regex.test(envRaw) || Boolean(process.env[envKey])) {
+          result.providerAuthenticated = true
+          result.authType = 'api_key'
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return result
+}
+
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -31,6 +113,13 @@ export async function GET(request: NextRequest) {
 
     const cronJobCount = installed ? getHermesTasks().cronJobs.length : 0
     const memoryEntries = installed ? getHermesMemory().agentMemoryEntries : 0
+    const providerStatus = installed ? getHermesProviderStatus() : {
+      provider: null,
+      model: null,
+      providerConfigured: false,
+      providerAuthenticated: false,
+      authType: null,
+    }
 
     return NextResponse.json({
       installed,
@@ -40,6 +129,7 @@ export async function GET(request: NextRequest) {
       cronJobCount,
       memoryEntries,
       hookDir: HOOK_DIR,
+      ...providerStatus,
     })
   } catch (err) {
     logger.error({ err }, 'Hermes status check failed')

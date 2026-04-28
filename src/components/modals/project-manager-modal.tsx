@@ -16,6 +16,7 @@ interface Project {
   color?: string
   github_sync_enabled?: boolean
   github_default_branch?: string
+  project_workdir?: string
   task_count?: number
   assigned_agents?: string[]
 }
@@ -52,6 +53,9 @@ export function ProjectManagerModal({
   const [form, setForm] = useState({ name: '', ticket_prefix: '', description: '' })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<{
+    name: string
+    slug: string
+    ticket_prefix: string
     description: string
     github_repo: string
     deadline: string
@@ -59,7 +63,8 @@ export function ProjectManagerModal({
     assigned_agents: string[]
     github_sync_enabled: boolean
     github_default_branch: string
-  }>({ description: '', github_repo: '', deadline: '', color: '', assigned_agents: [], github_sync_enabled: false, github_default_branch: 'main' })
+    project_workdir: string
+  }>({ name: '', slug: '', ticket_prefix: '', description: '', github_repo: '', deadline: '', color: '', assigned_agents: [], github_sync_enabled: false, github_default_branch: 'main', project_workdir: '' })
 
   const load = useCallback(async () => {
     try {
@@ -147,6 +152,9 @@ export function ProjectManagerModal({
     }
     setEditingId(project.id)
     setEditForm({
+      name: project.name || '',
+      slug: project.slug || '',
+      ticket_prefix: project.ticket_prefix || '',
       description: project.description || '',
       github_repo: project.github_repo || '',
       deadline: project.deadline ? new Date(project.deadline * 1000).toISOString().split('T')[0] : '',
@@ -154,18 +162,23 @@ export function ProjectManagerModal({
       assigned_agents: project.assigned_agents || [],
       github_sync_enabled: !!project.github_sync_enabled,
       github_default_branch: project.github_default_branch || 'main',
+      project_workdir: project.project_workdir || '',
     })
   }
 
   const saveEdit = async (project: Project) => {
     try {
       const body: Record<string, unknown> = {
+        name: editForm.name,
+        slug: editForm.slug,
+        ticket_prefix: editForm.ticket_prefix,
         description: editForm.description,
         github_repo: editForm.github_repo || null,
         color: editForm.color || null,
         deadline: editForm.deadline ? Math.floor(new Date(editForm.deadline).getTime() / 1000) : null,
         github_sync_enabled: editForm.github_sync_enabled ? 1 : 0,
         github_default_branch: editForm.github_default_branch || 'main',
+        project_workdir: editForm.project_workdir,
       }
       const response = await fetch(`/api/projects/${project.id}`, {
         method: 'PATCH',
@@ -285,6 +298,11 @@ export function ProjectManagerModal({
                           {project.ticket_prefix} &middot; {project.slug} &middot; {project.status}
                           {project.github_repo && <> &middot; {project.github_repo}</>}
                         </div>
+                        {project.project_workdir && (
+                          <div className="text-[11px] text-muted-foreground/80 font-mono truncate max-w-[34rem]" title={project.project_workdir}>
+                            {project.project_workdir}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -318,6 +336,40 @@ export function ProjectManagerModal({
                   {/* Inline Edit Section */}
                   {editingId === project.id && (
                     <div className="border-t border-border p-3 bg-surface-1/50 space-y-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Project Name</label>
+                          <input
+                            type="text"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+                            className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm"
+                            placeholder="Project name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Project Slug</label>
+                          <input
+                            type="text"
+                            value={editForm.slug}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, slug: e.target.value }))}
+                            className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm font-mono"
+                            placeholder="project-slug"
+                            disabled={project.slug === 'general'}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-muted-foreground mb-1">Ticket Prefix</label>
+                          <input
+                            type="text"
+                            value={editForm.ticket_prefix}
+                            onChange={(e) => setEditForm(prev => ({ ...prev, ticket_prefix: e.target.value }))}
+                            className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm font-mono"
+                            placeholder="WEB"
+                          />
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs text-muted-foreground mb-1">Description</label>
@@ -369,6 +421,20 @@ export function ProjectManagerModal({
                           </div>
                         </div>
                       )}
+
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Shared Project Directory</label>
+                        <input
+                          type="text"
+                          value={editForm.project_workdir}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, project_workdir: e.target.value }))}
+                          className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm font-mono"
+                          placeholder="Auto-generated standard location"
+                        />
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Agents assigned to this project should use this shared directory for plans, audits, and repo work.
+                        </p>
+                      </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>

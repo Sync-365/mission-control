@@ -283,8 +283,11 @@ function HermesSetup({ onClose, onComplete }: { onClose: () => void; onComplete:
       if (res.ok) {
         const data = await res.json()
         setHermesStatus(data)
-        if (data.hookInstalled && step === 'hook') {
-          setStep('provider')
+        if (data.providerConfigured && data.providerAuthenticated) {
+          setProviderSaved(true)
+        }
+        if (step === 'hook' && data.hookInstalled) {
+          setStep(data.providerConfigured && data.providerAuthenticated ? 'identity' : 'provider')
         }
       }
     } catch {
@@ -417,8 +420,16 @@ function HermesSetup({ onClose, onComplete }: { onClose: () => void; onComplete:
         <div className="space-y-4">
           <div>
             <p className="text-sm font-medium mb-1">Configure LLM Provider</p>
-            <p className="text-xs text-muted-foreground">Hermes needs an API key to talk to an LLM. Choose your provider:</p>
+            <p className="text-xs text-muted-foreground">Hermes needs an API key or OAuth login to talk to an LLM. Choose your provider:</p>
           </div>
+
+          {hermesStatus?.providerConfigured && hermesStatus?.providerAuthenticated && (
+            <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/5 text-xs text-green-400">
+              Hermes is already configured and authenticated
+              {hermesStatus.provider ? ` for ${hermesStatus.provider}` : ''}
+              {hermesStatus.model ? ` using ${hermesStatus.model}` : ''}.
+            </div>
+          )}
 
           {(() => {
             const PROVIDERS = [
@@ -689,7 +700,7 @@ function HermesSetup({ onClose, onComplete }: { onClose: () => void; onComplete:
                 }
               }}
             >
-              {running ? 'Saving...' : (authMethod !== 'device_code' && providerKey.trim()) ? 'Save & Continue' : 'Continue'}
+              {running ? 'Saving...' : (authMethod !== 'device_code' && providerKey.trim()) ? 'Save & Continue' : (hermesStatus?.providerConfigured && hermesStatus?.providerAuthenticated) ? 'Already configured — continue' : 'Continue'}
             </Button>
           </div>
         </div>

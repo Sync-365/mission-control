@@ -421,8 +421,32 @@ async function getGatewayStatus() {
 }
 
 async function getAvailableModels() {
-  // Model catalog is the single source of truth
+  // Start with the curated catalog, then merge in live configured models from OpenClaw.
   const models = [...MODEL_CATALOG]
+
+  try {
+    const { stdout } = await runOpenClaw(['models', 'list', '--json'], { timeoutMs: 5000 })
+    const parsed = JSON.parse(stdout) as { models?: Array<{ key?: string; name?: string }> }
+    const configuredModels = Array.isArray(parsed?.models) ? parsed.models : []
+
+    for (const entry of configuredModels) {
+      const key = String(entry?.key || '').trim()
+      if (!key) continue
+      if (models.find((m) => m.name === key)) continue
+
+      const provider = key.includes('/') ? key.split('/')[0] : 'unknown'
+      const shortName = String(entry?.name || key.split('/').pop() || key).trim()
+      models.push({
+        alias: shortName,
+        name: key,
+        provider,
+        description: 'Configured OpenClaw model',
+        costPer1k: 0.0,
+      })
+    }
+  } catch (error) {
+    logger.warn({ err: error }, 'Error checking configured OpenClaw models')
+  }
 
   try {
     // Use Ollama HTTP API instead of `ollama list` CLI.

@@ -5,6 +5,11 @@ import { eventBus } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
 import { syncTaskOutbound } from './github-sync-engine'
+import { createRun, updateRun } from './runs'
+import { dispatchTaskViaRuntime, resolveTaskRuntime } from './task-runtime-dispatch'
+import { getAllGatewaySessions } from './sessions'
+import { parseGatewayHistoryTranscript } from './transcript-parser'
+import { resolveProjectWorkdir, safeParseProjectMetadata } from './project-workdir'
 
 /** Sync task to GitHub/GNAP and broadcast escalation if task failed */
 function syncAndEscalateIfFailed(task: { id: number; title: string; status: string; priority: string; project_id?: number | null; workspace_id: number; description?: string | null }, newStatus: string, errorMsg?: string, dispatchAttempts?: number): void {
@@ -32,9 +37,16 @@ interface DispatchableTask {
   agent_name: string
   agent_id: number
   agent_config: string | null
+  agent_runtime_type?: string | null
+  agent_session_key?: string | null
+  metadata?: string | null
   ticket_prefix: string | null
   project_ticket_no: number | null
   project_id: number | null
+  project_name?: string | null
+  project_slug?: string | null
+  project_github_repo?: string | null
+  project_metadata?: string | null
   tags?: string[]
 }
 
@@ -89,6 +101,40 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
 
   if (task.description) {
     lines.push('', task.description)
+  }
+
+  try {
+    const db = getDatabase()
+    const comments = db.prepare(`
+      SELECT author, content
+      FROM comments
+      WHERE task_id = ? AND workspace_id = ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `).all(task.id, task.workspace_id) as Array<{ author: string; content: string }>
+    const ordered = comments.reverse().filter((comment) => comment.content?.trim())
+    if (ordered.length > 0) {
+      lines.push('', '## Task Comments / Follow-up Context')
+      for (const comment of ordered) {
+        lines.push(`- ${comment.author}: ${comment.content.trim().slice(0, 1200)}`)
+      }
+    }
+  } catch { /* comments are helpful context, not dispatch-critical */ }
+
+  if (task.project_id) {
+    const projectWorkdir = resolveProjectWorkdir({
+      slug: task.project_slug,
+      name: task.project_name,
+      metadata: safeParseProjectMetadata(task.project_metadata),
+    })
+    lines.push(
+      '',
+      '## Project Context',
+      task.project_name ? `Project: ${task.project_name}` : `Project ID: ${task.project_id}`,
+      `Shared project directory: ${projectWorkdir}`,
+    )
+    if (task.project_github_repo) lines.push(`GitHub repo: ${task.project_github_repo}`)
+    lines.push('Use the shared project directory for project plans, audits, notes, and any files other project tasks need to see.')
   }
 
   if (rejectionFeedback) {
@@ -308,14 +354,59 @@ interface ReviewableTask {
   project_ticket_no: number | null
 }
 
-function resolveGatewayAgentIdForReview(task: ReviewableTask): string {
-  if (task.agent_config) {
-    try {
-      const cfg = JSON.parse(task.agent_config)
-      if (typeof cfg.openclawId === 'string' && cfg.openclawId) return cfg.openclawId
-    } catch { /* ignore */ }
+function resolveGatewayAgentIdForReview(_task: ReviewableTask): string {
+  return (process.env.MC_AEGIS_OPENCLAW_AGENT_ID || 'main').trim() || 'main'
+}
+
+function resolveGatewaySessionKeyForReview(agentId: string): string {
+  const dedicated = `agent:${agentId}:mission-control-review`
+  const sessions = getAllGatewaySessions(24 * 60 * 60 * 1000, true)
+  return sessions.some((session) => session.key === dedicated) ? dedicated : dedicated
+}
+
+function countAssistantMessages(messages: unknown[]): number {
+  const parsed = parseGatewayHistoryTranscript(Array.isArray(messages) ? messages : [], 200)
+  return parsed.filter((msg) => msg.role === 'assistant').length
+}
+
+function getLastAssistantText(messages: unknown[]): string | null {
+  const parsed = parseGatewayHistoryTranscript(Array.isArray(messages) ? messages : [], 100)
+  for (let i = parsed.length - 1; i >= 0; i -= 1) {
+    const msg = parsed[i]
+    if (msg.role !== 'assistant') continue
+    const text = msg.parts.filter((part) => part.type === 'text').map((part) => part.text).join('\n').trim()
+    if (text) return text
   }
-  return task.assigned_to || 'jarv'
+  return null
+}
+
+async function sendOpenClawSessionPromptAndWait(sessionKey: string, prompt: string, idempotencyKey: string, timeoutMs = 125000): Promise<AgentResponseParsed> {
+  const baselineHistory = await callOpenClawGateway<{ messages?: unknown[] }>('chat.history', { sessionKey, limit: 50 }, 15000)
+  const baselineAssistantCount = countAssistantMessages(Array.isArray(baselineHistory?.messages) ? baselineHistory.messages : [])
+
+  const sendResult = await callOpenClawGateway<any>('chat.send', {
+    sessionKey,
+    message: prompt,
+    idempotencyKey,
+    deliver: false,
+  }, timeoutMs)
+
+  const status = String(sendResult?.status || '').toLowerCase()
+  if (status !== 'started' && status !== 'ok' && status !== 'in_flight') {
+    throw new Error(`chat.send to session ${sessionKey} returned status: ${status}`)
+  }
+
+  const started = Date.now()
+  while ((Date.now() - started) < timeoutMs) {
+    const history = await callOpenClawGateway<{ messages?: unknown[] }>('chat.history', { sessionKey, limit: 50 }, 15000)
+    const messages = Array.isArray(history?.messages) ? history.messages : []
+    if (countAssistantMessages(messages) > baselineAssistantCount) {
+      return { text: getLastAssistantText(messages), sessionId: sessionKey }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+  }
+
+  throw new Error(`Timed out waiting for Aegis review reply from ${sessionKey}`)
 }
 
 function buildReviewPrompt(task: ReviewableTask): string {
@@ -414,24 +505,33 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         }
         agentResponse = await callClaudeDirectly(reviewTask, prompt)
       } else {
-        // Resolve the gateway agent ID from config, falling back to assigned_to or default
         const reviewAgent = resolveGatewayAgentIdForReview(task)
+        const reviewSessionKey = resolveGatewaySessionKeyForReview(reviewAgent)
 
-        const invokeParams = {
-          message: prompt,
-          agentId: reviewAgent,
-          idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
-          deliver: false,
+        if (reviewSessionKey) {
+          agentResponse = await sendOpenClawSessionPromptAndWait(
+            reviewSessionKey,
+            prompt,
+            `aegis-review-${task.id}-${Date.now()}`,
+            125000,
+          )
+        } else {
+          const invokeParams = {
+            message: prompt,
+            agentId: reviewAgent,
+            idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
+            deliver: false,
+          }
+          const finalResult = await runOpenClaw(
+            ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
+            { timeoutMs: 125_000 }
+          )
+          const finalPayload = parseGatewayJson(finalResult.stdout)
+            ?? parseGatewayJson(String((finalResult as any)?.stderr || ''))
+          agentResponse = parseAgentResponse(
+            finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
+          )
         }
-        const finalResult = await runOpenClaw(
-          ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
-          { timeoutMs: 125_000 }
-        )
-        const finalPayload = parseGatewayJson(finalResult.stdout)
-          ?? parseGatewayJson(String((finalResult as any)?.stderr || ''))
-        agentResponse = parseAgentResponse(
-          finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
-        )
       }
 
       if (!agentResponse.text) {
@@ -625,7 +725,9 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
   const tasks = db.prepare(`
     SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
-           p.ticket_prefix, t.project_ticket_no
+           a.runtime_type as agent_runtime_type, a.session_key as agent_session_key,
+           p.ticket_prefix, p.name as project_name, p.slug as project_slug,
+           p.github_repo as project_github_repo, p.metadata as project_metadata, t.project_ticket_no
     FROM tasks t
     JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
     LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
@@ -687,72 +789,55 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       const taskMeta = (() => {
         try {
           const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string } | undefined
-          return row?.metadata ? JSON.parse(row.metadata) : {}
+          const meta = row?.metadata ? JSON.parse(row.metadata) : {}
+          if (task.project_id) {
+            meta.code_location = meta.code_location || resolveProjectWorkdir({
+              slug: task.project_slug,
+              name: task.project_name,
+              metadata: safeParseProjectMetadata(task.project_metadata),
+            })
+            if (task.project_github_repo) meta.implementation_repo = meta.implementation_repo || task.project_github_repo
+          }
+          return meta
         } catch { return {} }
       })()
       const targetSession: string | null = typeof taskMeta?.target_session === 'string' && taskMeta.target_session
         ? taskMeta.target_session
         : null
-
-      let agentResponse: AgentResponseParsed
       const useDirectApi = !isGatewayAvailable() && getAnthropicApiKey()
 
-      if (useDirectApi && !targetSession) {
-        // Direct Claude API dispatch — no gateway needed
-        agentResponse = await callClaudeDirectly(task, prompt)
-      } else if (targetSession) {
-        // Dispatch to a specific existing session via chat.send
-        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session')
-        const sendResult = await callOpenClawGateway<any>(
-          'chat.send',
-          {
-            sessionKey: targetSession,
-            message: prompt,
-            idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-            deliver: false,
-          },
-          125_000,
-        )
-        const status = String(sendResult?.status || '').toLowerCase()
-        if (status !== 'started' && status !== 'ok' && status !== 'in_flight') {
-          throw new Error(`chat.send to session ${targetSession} returned status: ${status}`)
-        }
-        // chat.send is fire-and-forget; we record the session but won't get inline response text
-        agentResponse = {
-          text: `Task dispatched to existing session ${targetSession}. The agent will process it within that session context.`,
-          sessionId: sendResult?.runId || targetSession,
-        }
-      } else {
-        // Step 1: Invoke via gateway (new session)
-        const gatewayAgentId = resolveGatewayAgentId(task)
-        const dispatchModel = resolveTaskDispatchModelOverride(task)
-        const invokeParams: Record<string, unknown> = {
-          message: prompt,
-          agentId: gatewayAgentId,
-          idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-          deliver: false,
-        }
-        // Route to appropriate model tier based on task complexity.
-        // null = no override, agent uses its own configured default model.
-        if (dispatchModel) invokeParams.model = dispatchModel
+      const effectiveRuntime = targetSession ? 'openclaw' : resolveTaskRuntime(task as any)
+      const runId = `task-${task.id}-${Date.now()}`
+      createRun({
+        id: runId,
+        agent_id: String(task.agent_id),
+        agent_name: task.agent_name,
+        runtime: effectiveRuntime,
+        trigger: 'queue',
+        task_id: String(task.id),
+        status: 'running',
+        started_at: new Date().toISOString(),
+        steps: [{
+          id: `dispatch-${task.id}`,
+          type: 'message',
+          input_preview: prompt.slice(0, 2000),
+          started_at: new Date().toISOString(),
+          metadata: { runtime: effectiveRuntime },
+        }],
+        tools_available: [],
+        cost: { input_tokens: 0, output_tokens: 0 },
+        provenance: { run_hash: '', runtime: effectiveRuntime },
+        metadata: { taskId: task.id, assignedTo: task.assigned_to },
+      }, task.workspace_id)
 
-        // Use --expect-final to block until the agent completes and returns the full
-        // response payload (result.payloads[0].text). The two-step agent → agent.wait
-        // pattern only returns lifecycle metadata and never includes the agent's text.
-        const finalResult = await runOpenClaw(
-          ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
-          { timeoutMs: 125_000 }
-        )
-        const finalPayload = parseGatewayJson(finalResult.stdout)
-          ?? parseGatewayJson(String((finalResult as any)?.stderr || ''))
+      const runtimeResult = useDirectApi && !targetSession
+        ? { ...(await callClaudeDirectly(task, prompt)), runtime: 'openclaw' as const, model: null, provider: 'anthropic' as const }
+        : await dispatchTaskViaRuntime({ ...task, metadata: JSON.stringify(taskMeta) }, prompt)
 
-        agentResponse = parseAgentResponse(
-          finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
-        )
-        if (!agentResponse.sessionId && finalPayload?.result?.meta?.agentMeta?.sessionId) {
-          agentResponse.sessionId = finalPayload.result.meta.agentMeta.sessionId
-        }
-      } // end else (new session dispatch)
+      const agentResponse: AgentResponseParsed = {
+        text: runtimeResult.text,
+        sessionId: runtimeResult.sessionId,
+      }
 
       if (!agentResponse.text) {
         throw new Error('Agent returned empty response')
@@ -772,6 +857,22 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       if (agentResponse.sessionId) {
         existingMeta.dispatch_session_id = agentResponse.sessionId
       }
+      existingMeta.runtime = runtimeResult.runtime
+      if (runtimeResult.model) existingMeta.runtime_model = runtimeResult.model
+      if (runtimeResult.provider) existingMeta.runtime_provider = runtimeResult.provider
+
+      updateRun(runId, {
+        status: 'completed',
+        outcome: 'success',
+        ended_at: new Date().toISOString(),
+        duration_ms: Math.max(0, Date.now() - now * 1000),
+        metadata: {
+          taskId: task.id,
+          assignedTo: task.assigned_to,
+          runtime: runtimeResult.runtime,
+          sessionId: runtimeResult.sessionId,
+        },
+      }, task.workspace_id)
 
       // Update task: status → review, set outcome
       db.prepare(`
@@ -816,7 +917,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       )
 
       results.push({ id: task.id, success: true })
-      logger.info({ taskId: task.id, agent: task.agent_name }, 'Task dispatched and completed')
+      logger.info({ taskId: task.id, agent: task.agent_name, runtime: runtimeResult.runtime }, 'Task dispatched and completed')
     } catch (err: any) {
       const errorMsg = err.message || 'Unknown error'
       logger.error({ taskId: task.id, agent: task.agent_name, err }, 'Task dispatch failed')
@@ -825,6 +926,18 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       const currentAttempts = (db.prepare('SELECT dispatch_attempts FROM tasks WHERE id = ?').get(task.id) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
       const newAttempts = currentAttempts + 1
       const maxDispatchRetries = 5
+
+      const failedRunIdPrefix = `task-${task.id}-`
+      const failedRun = db.prepare('SELECT id FROM runs WHERE task_id = ? AND workspace_id = ? ORDER BY created_at DESC LIMIT 1')
+        .get(String(task.id), task.workspace_id) as { id?: string } | undefined
+      if (failedRun?.id?.startsWith(failedRunIdPrefix) || failedRun?.id) {
+        updateRun(failedRun.id!, {
+          status: 'failed',
+          outcome: 'failed',
+          ended_at: new Date().toISOString(),
+          error: errorMsg.substring(0, 5000),
+        }, task.workspace_id)
+      }
 
       if (newAttempts >= maxDispatchRetries) {
         // Too many failures — move to failed

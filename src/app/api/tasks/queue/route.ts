@@ -3,6 +3,7 @@ import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { agentTaskLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
+import { resolveProjectWorkdir, safeParseProjectMetadata } from '@/lib/project-workdir'
 
 type QueueReason = 'continue_current' | 'assigned' | 'at_capacity' | 'no_tasks_available'
 
@@ -15,11 +16,39 @@ function safeParseJson<T>(raw: string | null | undefined, fallback: T): T {
   }
 }
 
-function mapTaskRow(task: any) {
+function hydrateTask(task: any, db: ReturnType<typeof getDatabase>, workspaceId: number) {
+  const metadata = safeParseJson(task.metadata, {} as Record<string, unknown>)
+  if (task.project_id) {
+    const project = db.prepare(`
+      SELECT name, slug, github_repo, metadata
+      FROM projects
+      WHERE id = ? AND workspace_id = ?
+      LIMIT 1
+    `).get(task.project_id, workspaceId) as any | undefined
+    if (project) {
+      metadata.code_location = metadata.code_location || resolveProjectWorkdir({
+        slug: project.slug,
+        name: project.name,
+        metadata: safeParseProjectMetadata(project.metadata),
+      })
+      if (project.github_repo) metadata.implementation_repo = metadata.implementation_repo || project.github_repo
+      metadata.project_name = metadata.project_name || project.name
+    }
+  }
+
+  const comments = db.prepare(`
+    SELECT author, content, created_at
+    FROM comments
+    WHERE task_id = ? AND workspace_id = ?
+    ORDER BY created_at DESC
+    LIMIT 10
+  `).all(task.id, workspaceId).reverse()
+
   return {
     ...task,
     tags: safeParseJson(task.tags, [] as string[]),
-    metadata: safeParseJson(task.metadata, {} as Record<string, unknown>),
+    metadata,
+    recent_comments: comments,
   }
 }
 
@@ -83,7 +112,7 @@ export async function GET(request: NextRequest) {
 
     if (currentTask) {
       return NextResponse.json({
-        task: mapTaskRow(currentTask),
+        task: hydrateTask(currentTask, db, workspaceId),
         reason: 'continue_current' as QueueReason,
         agent,
         timestamp: now,
@@ -122,7 +151,7 @@ export async function GET(request: NextRequest) {
 
     if (claimed) {
       return NextResponse.json({
-        task: mapTaskRow(claimed),
+        task: hydrateTask(claimed, db, workspaceId),
         reason: 'assigned' as QueueReason,
         agent,
         timestamp: now,
