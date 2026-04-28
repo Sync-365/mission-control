@@ -168,7 +168,11 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
     lines.push('', '## Previous Review Feedback', rejectionFeedback, '', 'Please address this feedback in your response.')
   }
 
-  lines.push('', 'Complete this task and provide your response. Be concise and actionable.')
+  lines.push(
+    '',
+    'Complete this task and provide your response. Be concise and actionable.',
+    'If the requested outcome is to create, split, or plan Mission Control tasks, create actual Mission Control task records when you have the required access; do not stop at a standalone markdown file. If you cannot create records directly, say so explicitly and return a structured task list with title, status, priority, owner, description, acceptance criteria, and dependencies so Mission Control can import it.'
+  )
   return lines.join('\n')
 }
 
