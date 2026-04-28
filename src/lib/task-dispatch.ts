@@ -675,10 +675,66 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
     return { ok: true, message: 'No stale tasks found' }
   }
 
+  let recovered = 0
   let requeued = 0
   let failed = 0
 
   for (const task of staleTasks) {
+    const latestRun = db.prepare(`
+      SELECT id, status
+      FROM runs
+      WHERE task_id = ? AND workspace_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(String(task.id), task.workspace_id) as { id: string; status: string } | undefined
+
+    if (latestRun?.status === 'running') {
+      const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string | null } | undefined
+      let sessionKey: string | null = null
+      try {
+        const meta = row?.metadata ? JSON.parse(row.metadata) : {}
+        if (typeof meta.dispatch_session_id === 'string' && meta.dispatch_session_id) sessionKey = meta.dispatch_session_id
+      } catch { /* ignore */ }
+
+      if (sessionKey) {
+        try {
+          const history = await callOpenClawGateway<{ messages?: unknown[] }>('chat.history', { sessionKey, limit: 50 }, 15000)
+          const text = getLastAssistantText(Array.isArray(history?.messages) ? history.messages : [])
+          if (text) {
+            const truncated = text.length > 10_000
+              ? text.substring(0, 10_000) + '\n\n[Response truncated at 10,000 characters]'
+              : text
+
+            db.prepare('UPDATE tasks SET status = ?, outcome = ?, resolution = ?, updated_at = ? WHERE id = ?')
+              .run('review', 'success', truncated, now, task.id)
+
+            db.prepare(`
+              INSERT INTO comments (task_id, author, content, created_at, workspace_id)
+              VALUES (?, ?, ?, ?, ?)
+            `).run(task.id, task.assigned_to || 'agent', truncated, now, task.workspace_id)
+
+            updateRun(latestRun.id, {
+              status: 'completed',
+              outcome: 'success',
+              ended_at: new Date().toISOString(),
+              metadata: { recovered: true, sessionId: sessionKey },
+            }, task.workspace_id)
+
+            eventBus.broadcast('task.status_changed', {
+              id: task.id,
+              status: 'review',
+              previous_status: 'in_progress',
+              reason: 'recovered_from_session',
+            })
+            recovered++
+            continue
+          }
+        } catch (err) {
+          logger.warn({ err, taskId: task.id, sessionKey }, 'Failed to recover stale task from gateway session')
+        }
+      }
+    }
+
     // Only requeue if the agent is offline or unknown
     const agentOffline = !task.agent_status || task.agent_status === 'offline'
     if (!agentOffline) continue
@@ -722,12 +778,12 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
     }
   }
 
-  const total = requeued + failed
+  const total = recovered + requeued + failed
   return {
     ok: true,
     message: total === 0
       ? `Found ${staleTasks.length} stale task(s) but agents still online`
-      : `Requeued ${requeued}, failed ${failed} of ${staleTasks.length} stale task(s)`,
+      : `Recovered ${recovered}, requeued ${requeued}, failed ${failed} of ${staleTasks.length} stale task(s)`,
   }
 }
 

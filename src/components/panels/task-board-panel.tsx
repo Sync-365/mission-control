@@ -1826,11 +1826,15 @@ function TaskSessionFeed({ sessionId, agentName, isLive }: { sessionId: string; 
 
   const fetchTranscript = useCallback(async () => {
     try {
-      const res = await fetch(`/api/sessions/transcript?kind=claude-code&id=${encodeURIComponent(sessionId)}&limit=100`)
+      const isGatewaySession = sessionId.startsWith('agent:') || sessionId.includes(':mission-control')
+      const url = isGatewaySession
+        ? `/api/sessions/transcript/gateway?key=${encodeURIComponent(sessionId)}&limit=100`
+        : `/api/sessions/transcript?kind=claude-code&id=${encodeURIComponent(sessionId)}&limit=100`
+      const res = await fetch(url)
       if (!res.ok) throw new Error(`Failed to fetch transcript: ${res.status}`)
       const data = await res.json()
       setMessages(data.messages || [])
-      setError(null)
+      setError(data.error || null)
     } catch (err: any) {
       setError(err.message || 'Failed to load session transcript')
     } finally {
