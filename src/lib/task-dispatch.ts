@@ -516,6 +516,39 @@ function buildReviewPrompt(task: ReviewableTask): string {
     lines.push('', '## Agent Resolution', task.resolution.substring(0, 6000))
   }
 
+  try {
+    const db = getDatabase()
+    const comments = db.prepare(`
+      SELECT author, content, created_at
+      FROM comments
+      WHERE task_id = ? AND workspace_id = ?
+      ORDER BY created_at DESC
+      LIMIT 8
+    `).all(task.id, task.workspace_id) as Array<{ author: string; content: string; created_at: number }>
+    const usefulComments = comments
+      .reverse()
+      .filter((comment) => comment.content?.trim())
+      .filter((comment) => comment.author.toLowerCase() !== 'aegis')
+
+    if (usefulComments.length > 0) {
+      lines.push(
+        '',
+        '## Task Comments / Supplemental Completion Evidence',
+        'Use these comments as additional evidence, especially when a restart or manual recovery means the task resolution field is missing or incomplete.'
+      )
+      for (const comment of usefulComments) {
+        lines.push(`- ${comment.author}: ${comment.content.trim().slice(0, 1800)}`)
+      }
+    }
+  } catch { /* comments improve review quality but should not block review */ }
+
+  if (!task.resolution) {
+    lines.push(
+      '',
+      'Note: the structured resolution field is empty. Do not reject for that reason alone if the task comments contain sufficient completion evidence.'
+    )
+  }
+
   lines.push(
     '',
     '## Instructions',

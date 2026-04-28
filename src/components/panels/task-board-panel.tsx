@@ -944,12 +944,15 @@ export function TaskBoardPanel() {
 
       {/* Kanban Board */}
       <div className="flex-1 min-h-0 flex gap-4 p-4 overflow-x-auto" role="region" aria-label={t('taskBoard')}>
-        {statusColumns.map(column => (
+        {statusColumns.map(column => {
+          const columnTasks = tasksByStatus[column.key] || []
+          const isEmptyColumn = columnTasks.length === 0
+          return (
           <div
             key={column.key}
             role="region"
-            aria-label={t('columnAriaLabel', { title: column.title, count: tasksByStatus[column.key]?.length || 0 })}
-            className="flex-1 min-w-80 min-h-0 bg-surface-0 border border-border/60 rounded-xl flex flex-col transition-colors duration-200 [&.drag-over]:border-primary/40 [&.drag-over]:bg-primary/[0.02]"
+            aria-label={t('columnAriaLabel', { title: column.title, count: columnTasks.length })}
+            className={`${isEmptyColumn ? 'flex-none min-w-36 md:min-w-40 opacity-75' : 'flex-1 min-w-80'} min-h-0 bg-surface-0 border border-border/60 rounded-xl flex flex-col transition-all duration-200 [&.drag-over]:border-primary/40 [&.drag-over]:bg-primary/[0.02]`}
             onDragEnter={(e) => handleDragEnter(e, column.key)}
             onDragLeave={handleDragLeave}
             onDragOver={handleDragOver}
@@ -957,15 +960,15 @@ export function TaskBoardPanel() {
           >
             {/* Column Header */}
             <div className={`${column.color} px-4 py-3 rounded-t-xl flex justify-between items-center border-b border-border/30`}>
-              <h3 className="font-semibold text-sm tracking-wide">{column.title}</h3>
+              <h3 className={`${isEmptyColumn ? 'text-xs' : 'text-sm'} font-semibold tracking-wide truncate`}>{column.title}</h3>
               <span className="text-xs font-mono bg-white/10 px-2 py-0.5 rounded-md min-w-[1.75rem] text-center">
-                {tasksByStatus[column.key]?.length || 0}
+                {columnTasks.length}
               </span>
             </div>
 
             {/* Column Body */}
-            <div className="flex-1 p-2.5 space-y-2.5 min-h-32 h-full overflow-y-auto">
-              {tasksByStatus[column.key]?.map(task => (
+            <div className={`${isEmptyColumn ? 'flex-none p-2 min-h-20' : 'flex-1 p-2.5 min-h-32'} space-y-2.5 h-full overflow-y-auto`}>
+              {columnTasks.map(task => (
                 <div
                   key={task.id}
                   draggable
@@ -1135,8 +1138,8 @@ export function TaskBoardPanel() {
               ))}
 
               {/* Empty State */}
-              {tasksByStatus[column.key]?.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-10 text-muted-foreground/30">
+              {isEmptyColumn && (
+                <div className="flex flex-col items-center justify-center py-4 text-muted-foreground/30">
                   <svg className="w-8 h-8 mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                     <rect x="3" y="3" width="18" height="18" rx="2" />
                     <path d="M9 12h6M12 9v6" strokeLinecap="round" />
@@ -1146,7 +1149,7 @@ export function TaskBoardPanel() {
               )}
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {/* Claude Code Tasks */}
@@ -1181,6 +1184,7 @@ export function TaskBoardPanel() {
           agents={agents}
           projects={projects}
           availableModels={availableModels}
+          defaultProjectId={activeProject?.id ?? null}
           onClose={() => setShowCreateModal(false)}
           onCreated={fetchData}
         />
@@ -2106,21 +2110,26 @@ function CreateTaskModal({
   agents, 
   projects,
   availableModels,
+  defaultProjectId,
   onClose, 
   onCreated 
 }: { 
   agents: Agent[]
   projects: Project[]
   availableModels: ModelConfig[]
+  defaultProjectId?: number | null
   onClose: () => void
   onCreated: () => void
 }) {
+  const initialProjectId = defaultProjectId && projects.some(project => project.id === defaultProjectId)
+    ? String(defaultProjectId)
+    : projects[0]?.id ? String(projects[0].id) : ''
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     priority: 'medium' as Task['priority'],
     status: 'backlog' as Task['status'],
-    project_id: projects[0]?.id ? String(projects[0].id) : '',
+    project_id: initialProjectId,
     assigned_to: '',
     tags: '',
     target_session: '',
