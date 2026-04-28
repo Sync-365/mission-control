@@ -1243,9 +1243,29 @@ function TaskDetailModal({
   const [reviewStatus, setReviewStatus] = useState<'approved' | 'rejected'>('approved')
   const [reviewNotes, setReviewNotes] = useState('')
   const [reviewError, setReviewError] = useState<string | null>(null)
+  const [manualDispatching, setManualDispatching] = useState(false)
+  const [manualDispatchError, setManualDispatchError] = useState<string | null>(null)
   const mentionTargets = useMentionTargets()
   const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'quality' | 'session'>('details')
   const [reviewer, setReviewer] = useState('aegis')
+
+  const canManualDispatch = Boolean(task.assigned_to) && !['in_progress', 'review', 'quality_review', 'done'].includes(task.status)
+
+  const handleManualDispatch = async () => {
+    if (!canManualDispatch || manualDispatching) return
+    setManualDispatching(true)
+    setManualDispatchError(null)
+    try {
+      const response = await fetch(`/api/tasks/${task.id}/dispatch`, { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'Failed to dispatch task')
+      onUpdate()
+    } catch (error: any) {
+      setManualDispatchError(error?.message || 'Failed to dispatch task')
+    } finally {
+      setManualDispatching(false)
+    }
+  }
 
   const fetchReviews = useCallback(async () => {
     try {
@@ -1461,6 +1481,17 @@ function TaskDetailModal({
               <h3 id="task-detail-title" className="text-lg font-semibold text-foreground leading-tight">{task.title}</h3>
             </div>
             <div className="flex items-center gap-1 shrink-0">
+              {canManualDispatch && (
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onClick={handleManualDispatch}
+                  disabled={manualDispatching}
+                  title={!task.assigned_to ? 'Assign this task before dispatching' : 'Dispatch this task now'}
+                >
+                  {manualDispatching ? 'Starting…' : 'Run now'}
+                </Button>
+              )}
               <Button variant="ghost" size="icon-sm" onClick={() => onEdit(task)} className="text-muted-foreground hover:text-foreground" aria-label={t('edit')}>
                 <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M11.5 1.5l3 3-9 9H2.5v-3z" /><path d="M9.5 3.5l3 3" /></svg>
               </Button>
@@ -1499,6 +1530,12 @@ function TaskDetailModal({
             <p className="mt-2 text-xs text-muted-foreground/50 italic">{t('noDescription')}</p>
           )}
         </div>
+
+        {manualDispatchError && (
+          <div className="mx-6 mb-2 p-3 rounded-lg border border-red-500/20 bg-red-500/5 text-xs text-red-400">
+            {manualDispatchError}
+          </div>
+        )}
 
         {/* Failed task: error message + retry button */}
         {task.status === 'failed' && (

@@ -803,8 +803,11 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
   }
 }
 
-export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: string }> {
+export async function dispatchAssignedTasks(taskId?: number): Promise<{ ok: boolean; message: string }> {
   const db = getDatabase()
+  const params: any[] = []
+  const taskFilter = typeof taskId === 'number' && Number.isInteger(taskId) ? 'AND t.id = ?' : ''
+  if (taskFilter) params.push(taskId)
 
   const tasks = db.prepare(`
     SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
@@ -816,15 +819,16 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
     LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
     WHERE t.status = 'assigned'
       AND t.assigned_to IS NOT NULL
+      ${taskFilter}
       AND (a.runtime_type IS NULL OR a.runtime_type IN ('openclaw', 'hermes', 'claude', 'codex'))
     ORDER BY
       CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END ASC,
       t.created_at ASC
-    LIMIT 3
-  `).all() as (DispatchableTask & { tags?: string })[]
+    LIMIT ${taskFilter ? 1 : 3}
+  `).all(...params) as (DispatchableTask & { tags?: string })[]
 
   if (tasks.length === 0) {
-    return { ok: true, message: 'No assigned tasks to dispatch' }
+    return { ok: true, message: taskFilter ? `Task ${taskId} is not assigned to a dispatchable runtime agent` : 'No assigned tasks to dispatch' }
   }
 
   // Parse JSON tags column
