@@ -34,6 +34,7 @@ const navGroups: NavGroup[] = [
       { id: 'chat', label: 'Chat', icon: <ChatIcon />, priority: false, essential: true },
       { id: 'channels', label: 'Channels', icon: <ChannelsIcon />, priority: false },
       { id: 'skills', label: 'Skills', icon: <SkillsIcon />, priority: false },
+      { id: 'files', label: 'Files', icon: <FilesIcon />, priority: false },
       { id: 'memory', label: 'Memory', icon: <MemoryIcon />, priority: false },
     ],
   },
@@ -1296,6 +1297,16 @@ function MemoryIcon() {
       <ellipse cx="8" cy="8" rx="6" ry="3" />
       <path d="M2 8v3c0 1.7 2.7 3 6 3s6-1.3 6-3V8" />
       <path d="M2 5v3c0 1.7 2.7 3 6 3s6-1.3 6-3V5" />
+    </svg>
+  )
+}
+
+function FilesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 2.5h5L12.5 6v7.5h-9z" />
+      <path d="M8.5 2.5V6h4" />
+      <path d="M5.5 9h5M5.5 11.5h3" />
     </svg>
   )
 }

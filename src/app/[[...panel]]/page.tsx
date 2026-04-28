@@ -30,6 +30,7 @@ import { SuperAdminPanel } from '@/components/panels/super-admin-panel'
 import { OfficePanel } from '@/components/panels/office-panel'
 import { GitHubSyncPanel } from '@/components/panels/github-sync-panel'
 import { SkillsPanel } from '@/components/panels/skills-panel'
+import { WorkspaceFilesPanel } from '@/components/panels/workspace-files-panel'
 import { LocalAgentsDocPanel } from '@/components/panels/local-agents-doc-panel'
 import { ChannelsPanel } from '@/components/panels/channels-panel'
 import { DebugPanel } from '@/components/panels/debug-panel'
@@ -589,6 +590,8 @@ function ContentRouter({ tab }: { tab: string }) {
       return <SystemMonitorPanel />
     case 'skills':
       return <SkillsPanel />
+    case 'files':
+      return <WorkspaceFilesPanel />
     case 'channels':
       if (isLocal) return <LocalModeUnavailable panel={tab} />
       return <ChannelsPanel />
