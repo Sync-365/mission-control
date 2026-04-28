@@ -40,6 +40,10 @@ interface OpenClawAgent {
     allow?: string[]
     deny?: string[]
   }
+  skills?: string[]
+  thinking?: string
+  thinkingDefault?: string
+  reasoningDefault?: string
   memorySearch?: any
 }
 
@@ -212,7 +216,11 @@ function mapAgentToMC(agent: OpenClawAgent): {
     identity: agent.identity,
     sandbox: agent.sandbox,
     tools: agent.tools,
+    skills: agent.skills,
     subagents: agent.subagents,
+    thinking: agent.thinking,
+    thinkingDefault: agent.thinkingDefault,
+    reasoningDefault: agent.reasoningDefault,
     memorySearch: agent.memorySearch,
     workspace: agent.workspace,
     agentDir: agent.agentDir,
@@ -256,8 +264,19 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
   db.transaction(() => {
     for (const agent of agents) {
       const mapped = mapAgentToMC(agent)
-      const configJson = JSON.stringify(mapped.config)
       const existing = findByName.get(mapped.name) as any
+      if (existing?.config) {
+        try {
+          const existingParsed = JSON.parse(existing.config)
+          if (Array.isArray(existingParsed.taskTags) && !Array.isArray(mapped.config.taskTags)) {
+            mapped.config.taskTags = existingParsed.taskTags
+          }
+          if (existingParsed.runtime_type && !mapped.config.runtime_type) mapped.config.runtime_type = existingParsed.runtime_type
+          if (existingParsed.workspaceMode && !mapped.config.workspaceMode) mapped.config.workspaceMode = existingParsed.workspaceMode
+          if (existingParsed.toolProfile && !mapped.config.toolProfile) mapped.config.toolProfile = existingParsed.toolProfile
+        } catch { /* ignore malformed existing config */ }
+      }
+      const configJson = JSON.stringify(mapped.config)
 
       if (existing) {
         // Check if config or soul_content actually changed

@@ -113,7 +113,7 @@ function resolveOpenClawAgentId(task: RuntimeDispatchTask): string {
 }
 
 function buildMissionControlSessionKey(task: RuntimeDispatchTask): string {
-  return `agent:${resolveOpenClawAgentId(task)}:mission-control`
+  return `agent:${resolveOpenClawAgentId(task)}:task-${task.id}`
 }
 
 function findOpenClawSessionKey(task: RuntimeDispatchTask): string {

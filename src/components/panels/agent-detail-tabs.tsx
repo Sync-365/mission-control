@@ -900,14 +900,18 @@ const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
 type CreateAgentRuntime = 'profile' | 'openclaw' | 'hermes' | 'claude' | 'codex' | 'custom'
 type WorkspaceMode = 'none' | 'default' | 'dedicated' | 'existing' | 'runtime'
 type ToolProfile = 'template' | 'readonly' | 'coding' | 'orchestrator' | 'research' | 'custom'
-type ThinkingLevel = '' | 'minimal' | 'low' | 'medium' | 'high'
+type ThinkingLevel = '' | 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'adaptive' | 'max'
 
 const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string; description: string }> = [
   { value: '', label: 'Default / inherit', description: 'Use runtime or model default' },
+  { value: 'off', label: 'Off', description: 'Disable explicit reasoning/thinking override' },
   { value: 'minimal', label: 'Minimal', description: 'Smallest reasoning budget, useful for GPT-5 quick passes' },
   { value: 'low', label: 'Low', description: 'Faster, lighter reasoning' },
   { value: 'medium', label: 'Medium', description: 'Balanced reasoning' },
   { value: 'high', label: 'High', description: 'Deeper reasoning for hard tasks' },
+  { value: 'xhigh', label: 'XHigh', description: 'Extra-high reasoning where supported' },
+  { value: 'adaptive', label: 'Adaptive', description: 'Provider-managed dynamic thinking where supported' },
+  { value: 'max', label: 'Max', description: 'Maximum reasoning profile where supported' },
 ]
 
 type RuntimeOption = {
@@ -1995,23 +1999,33 @@ export function ConfigTab({
           <div className="bg-surface-1/50 rounded-lg p-4">
             <h5 className="text-sm font-medium text-foreground mb-2">Skills</h5>
             {editing ? (
-              <div className="space-y-2">
-                <select
-                  multiple
-                  value={selectedSkills}
-                  onChange={(e) => {
-                    const next = Array.from(e.currentTarget.selectedOptions).map(option => option.value)
-                    setConfig((prev: any) => ({ ...prev, skills: next }))
-                  }}
-                  className="w-full min-h-36 bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-sm"
-                >
-                  {skillOptions.map(skill => (
-                    <option key={`${skill.source || 'skill'}:${skill.name}`} value={skill.name} title={skill.description || skill.source || skill.name}>
-                      {skill.name}{skill.source ? ` · ${skill.source}` : ''}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">Hold Ctrl/Cmd to select multiple. Empty means no explicit skill allowlist.</p>
+              <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                {skillOptions.map(skill => {
+                  const checked = selectedSkills.includes(skill.name)
+                  return (
+                    <label key={`${skill.source || 'skill'}:${skill.name}`} className="flex items-start gap-2 rounded border border-border/60 bg-surface-1/60 px-3 py-2 text-sm cursor-pointer hover:bg-surface-1">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          setConfig((prev: any) => {
+                            const current = Array.isArray(prev.skills) ? prev.skills.map((value: any) => String(value)).filter(Boolean) : []
+                            const next = e.target.checked
+                              ? [...new Set([...current, skill.name])]
+                              : current.filter((name: string) => name !== skill.name)
+                            return { ...prev, skills: next }
+                          })
+                        }}
+                        className="mt-0.5 h-4 w-4 rounded border-border"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-foreground font-mono text-xs">{skill.name}{skill.source ? ` · ${skill.source}` : ''}</span>
+                        {skill.description && <span className="block text-xs text-muted-foreground mt-0.5 line-clamp-2">{skill.description}</span>}
+                      </span>
+                    </label>
+                  )
+                })}
+                <p className="text-xs text-muted-foreground">Empty means no explicit skill allowlist.</p>
               </div>
             ) : selectedSkills.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
