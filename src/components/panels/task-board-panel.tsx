@@ -1264,8 +1264,6 @@ function TaskDetailModal({
   useEffect(() => {
     fetchReviews()
   }, [fetchReviews])
-  
-  useSmartPoll(fetchComments, 15000)
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault()
