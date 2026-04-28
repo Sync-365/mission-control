@@ -900,10 +900,11 @@ const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
 type CreateAgentRuntime = 'profile' | 'openclaw' | 'hermes' | 'claude' | 'codex' | 'custom'
 type WorkspaceMode = 'none' | 'default' | 'dedicated' | 'existing' | 'runtime'
 type ToolProfile = 'template' | 'readonly' | 'coding' | 'orchestrator' | 'research' | 'custom'
-type ThinkingLevel = '' | 'low' | 'medium' | 'high'
+type ThinkingLevel = '' | 'minimal' | 'low' | 'medium' | 'high'
 
 const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string; description: string }> = [
   { value: '', label: 'Default / inherit', description: 'Use runtime or model default' },
+  { value: 'minimal', label: 'Minimal', description: 'Smallest reasoning budget, useful for GPT-5 quick passes' },
   { value: 'low', label: 'Low', description: 'Faster, lighter reasoning' },
   { value: 'medium', label: 'Medium', description: 'Balanced reasoning' },
   { value: 'high', label: 'High', description: 'Deeper reasoning for hard tasks' },

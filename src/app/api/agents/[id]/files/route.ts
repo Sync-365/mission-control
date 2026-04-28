@@ -20,7 +20,7 @@ const ALLOWED_FILES = new Set([
   'USER.md',
 ])
 const FILE_ALIASES: Record<string, string[]> = {
-  'agent.md': ['agent.md', 'AGENT.md', 'MISSION.md', 'USER.md'],
+  'agent.md': ['agent.md', 'AGENT.md'],
   'identity.md': ['identity.md', 'IDENTITY.md'],
   'soul.md': ['soul.md', 'SOUL.md'],
   'WORKING.md': ['WORKING.md', 'working.md'],
