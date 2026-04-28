@@ -146,6 +146,21 @@ function getLastAssistantText(messages: unknown[]): string | null {
   return null
 }
 
+function getAssistantTextAfterCount(messages: unknown[], baselineAssistantCount: number): string | null {
+  const parsed = parseGatewayHistoryTranscript(Array.isArray(messages) ? messages : [], 200)
+  const assistantMessages = parsed.filter((msg) => msg.role === 'assistant')
+  for (let i = assistantMessages.length - 1; i >= baselineAssistantCount; i -= 1) {
+    const msg = assistantMessages[i]
+    const text = msg.parts
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n')
+      .trim()
+    if (text) return text
+  }
+  return null
+}
+
 function countAssistantMessages(messages: unknown[]): number {
   const parsed = parseGatewayHistoryTranscript(Array.isArray(messages) ? messages : [], 200)
   return parsed.filter((msg) => msg.role === 'assistant').length
@@ -161,7 +176,11 @@ async function waitForSessionReply(sessionKey: string, baselineAssistantCount: n
       const messages = Array.isArray(history?.messages) ? history.messages : []
       const assistantCount = countAssistantMessages(messages)
       if (assistantCount > baselineAssistantCount) {
-        return { text: getLastAssistantText(messages) }
+        const text = getAssistantTextAfterCount(messages, baselineAssistantCount)
+        if (text) return { text }
+        // The agent may have emitted a tool-call-only assistant message and is
+        // still working. Keep waiting for the final text response instead of
+        // returning null and letting Mission Control falsely requeue the task.
       }
     } catch (err) {
       // A busy gateway can transiently time out history reads while the agent is
