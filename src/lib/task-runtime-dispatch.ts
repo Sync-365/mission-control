@@ -319,6 +319,7 @@ async function dispatchOpenClaw(task: RuntimeDispatchTask, prompt: string): Prom
 async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promise<RuntimeDispatchResult> {
   const cfg = getAgentConfig(task)
   const dispatchModel = resolveOpenClawModel(task)
+  const cwd = resolveTaskWorkingDir(task)
   const args = ['-z', prompt]
   const hermesProfile = typeof cfg.hermesProfile === 'string' && cfg.hermesProfile
     ? cfg.hermesProfile
@@ -356,11 +357,34 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
   if (cfg.yolo === true) args.push('--yolo')
   args.push('--accept-hooks')
 
-  const result = await runCommand('hermes', args, {
-    cwd: resolveTaskWorkingDir(task),
-    env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 600000),
-  })
+  let result
+  try {
+    result = await runCommand('hermes', args, {
+      cwd,
+      env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
+      timeoutMs: Number(cfg.timeoutMs || 1800000),
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // Hermes can complete the actual git/PR work before the final assistant
+    // message is returned. If the wrapper times out after a clean pushed branch
+    // with an open PR, recover the Mission Control task instead of retrying and
+    // risking duplicate work.
+    if (message.includes('Command timed out')) {
+      const recovered = await recoverCompletedGitTaskFromTimeout(cwd)
+      if (recovered) {
+        return {
+          text: recovered,
+          sessionId: null,
+          runtime: 'hermes',
+          model: dispatchModel,
+          provider: typeof cfg.provider === 'string' ? cfg.provider : null,
+          metadata: { recoveredAfterTimeout: true },
+        }
+      }
+    }
+    throw err
+  }
 
   return {
     text: result.stdout.trim() || null,
@@ -368,6 +392,33 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
     runtime: 'hermes',
     model: dispatchModel,
     provider: typeof cfg.provider === 'string' ? cfg.provider : null,
+  }
+}
+
+async function recoverCompletedGitTaskFromTimeout(cwd: string): Promise<string | null> {
+  try {
+    const status = await runCommand('git', ['status', '--short', '--branch'], { cwd, timeoutMs: 30_000 })
+    const lines = status.stdout.trim().split('\n').filter(Boolean)
+    const branchLine = lines[0] || ''
+    const dirtyLines = lines.slice(1).filter((line) => !line.startsWith('?? node_modules/'))
+    if (!branchLine.includes('...origin/') || dirtyLines.length > 0) return null
+
+    const branchMatch = branchLine.match(/^##\s+([^\.\s]+(?:\/[^\.\s]+)*)\.\.\./)
+    const branch = branchMatch?.[1]
+    if (!branch || branch === 'main' || branch === 'master') return null
+
+    const pr = await runCommand('gh', ['pr', 'view', branch, '--json', 'number,url,state,headRefName'], { cwd, timeoutMs: 30_000 })
+    const parsed = safeJsonParse<{ number?: number; url?: string; state?: string; headRefName?: string }>(pr.stdout, {})
+    if (!parsed.url || parsed.state !== 'OPEN') return null
+
+    return [
+      'Completed before the runtime timeout, recovered from the pushed branch and open PR.',
+      `Branch: ${branch}`,
+      `PR: ${parsed.url}`,
+      'Verification: see the PR body and committed task branch for the recorded checks.',
+    ].join('\n')
+  } catch {
+    return null
   }
 }
 
@@ -384,7 +435,7 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
   const result = await runCommand('claude', args, {
     cwd: resolveTaskWorkingDir(task),
     env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 600000),
+    timeoutMs: Number(cfg.timeoutMs || 1800000),
   })
 
   const parsed = parseGatewayJson(result.stdout) || safeJsonParse<any>(result.stdout, null)
@@ -411,7 +462,7 @@ async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise
   const result = await runCommand('codex', args, {
     cwd: resolveTaskWorkingDir(task),
     env: await getRuntimeEnv({ extra: resolveProjectRuntimeEnv(task) }),
-    timeoutMs: Number(cfg.timeoutMs || 600000),
+    timeoutMs: Number(cfg.timeoutMs || 1800000),
   })
 
   const sessionIdMatch = result.stdout.match(/"thread_id":"([^"]+)"/)

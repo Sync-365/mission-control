@@ -62,7 +62,10 @@ export function runCommand(
         resolve({ stdout, stderr, code })
         return
       }
-      const argsPreview = args.join(' ').slice(0, 500)
+      const argsPreview = args
+        .map((arg) => arg.length > 160 ? `${arg.slice(0, 80)}…[${arg.length} chars]` : arg)
+        .join(' ')
+        .slice(0, 1200)
       const output = (stderr || stdout || '').trim()
       const outputPreview = output ? `: ${output.slice(0, 4000)}` : ''
       const error = new Error(
