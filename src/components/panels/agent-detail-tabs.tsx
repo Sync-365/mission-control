@@ -995,7 +995,7 @@ export function CreateAgentModal({
     workspaceMode: 'dedicated' as WorkspaceMode,
     existingWorkspacePath: '',
     workspaceAccess: 'rw' as 'rw' | 'ro' | 'none',
-    sandboxMode: 'all' as 'all' | 'non-main',
+    sandboxMode: 'all' as 'all' | 'non-main' | 'off',
     dockerNetwork: 'none' as 'none' | 'bridge',
     session_key: '',
     instructions: '',
@@ -1544,6 +1544,7 @@ export function CreateAgentModal({
                     <select value={formData.sandboxMode} onChange={(e) => setFormData(prev => ({ ...prev, sandboxMode: e.target.value as any }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
                       <option value="all">All sessions</option>
                       <option value="non-main">Non-main only</option>
+                      <option value="off">Off</option>
                     </select>
                   </div>
                   <div>
@@ -1845,11 +1846,13 @@ export function ConfigTab({
           throw new Error('Primary model is required')
         }
       }
+      const nextConfig = showJson ? JSON.parse(jsonInput) : config
+      if (nextConfig?.sandbox?.mode === 'none') nextConfig.sandbox = { ...nextConfig.sandbox, mode: 'off' }
       const response = await fetch(`/api/agents/${agent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          gateway_config: showJson ? JSON.parse(jsonInput) : config,
+          gateway_config: nextConfig,
           write_to_gateway: runtimeType === 'openclaw',
         }),
       })
@@ -1883,6 +1886,8 @@ export function ConfigTab({
   const modelPrimary = model.primary || ''
   const modelFallbacks = Array.isArray(model.fallbacks) ? model.fallbacks : []
   const selectedSkills = Array.isArray(config.skills) ? config.skills.map((skill: any) => String(skill)).filter(Boolean) : []
+  const selectedTaskTags = Array.isArray(config.taskTags) ? config.taskTags.map((tag: any) => String(tag)).filter(Boolean) : []
+  const taskTagsText = selectedTaskTags.join(', ')
   const skillOptions = [
     ...availableSkills,
     ...selectedSkills
@@ -2016,6 +2021,34 @@ export function ConfigTab({
               </div>
             ) : (
               <div className="text-sm text-muted-foreground">No explicit skills configured</div>
+            )}
+          </div>
+
+          {/* Routing */}
+          <div className="bg-surface-1/50 rounded-lg p-4">
+            <h5 className="text-sm font-medium text-foreground mb-2">Routing</h5>
+            {editing ? (
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Task tags/types</label>
+                <input
+                  value={taskTagsText}
+                  onChange={(e) => {
+                    const next = e.target.value.split(',').map(tag => tag.trim()).filter(Boolean)
+                    setConfig((prev: any) => ({ ...prev, taskTags: [...new Set(next)] }))
+                  }}
+                  placeholder="planning, astro, seo"
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-sm"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Used by Mission Control auto-routing if routing is enabled.</p>
+              </div>
+            ) : selectedTaskTags.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {selectedTaskTags.map((tag: string) => (
+                  <span key={tag} className="px-2 py-1 text-xs rounded bg-surface-2 text-foreground font-mono">{tag}</span>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No routing tags configured</div>
             )}
           </div>
 
@@ -2258,14 +2291,14 @@ export function ConfigTab({
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">{t('mode')}</label>
                   <select
-                    value={sandbox.mode || ''}
+                    value={sandbox.mode === 'none' ? 'off' : (sandbox.mode || '')}
                     onChange={(e) => updateSandboxField('mode', e.target.value)}
                     className="w-full bg-surface-1 text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
                   >
                     <option value="">{t('notConfigured')}</option>
                     <option value="all">{t('all')}</option>
                     <option value="non-main">{t('nonMain')}</option>
-                    <option value="none">{t('none')}</option>
+                    <option value="off">Off</option>
                   </select>
                 </div>
                 <div>

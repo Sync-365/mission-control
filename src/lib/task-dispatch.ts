@@ -1116,8 +1116,12 @@ function scoreAgentForTask(
     try {
       const cfg = JSON.parse(agent.config)
       const caps = Array.isArray(cfg.capabilities) ? cfg.capabilities : []
+      const taskTags = Array.isArray(cfg.taskTags) ? cfg.taskTags : []
       for (const cap of caps) {
         if (typeof cap === 'string' && text.includes(cap.toLowerCase())) score += 15
+      }
+      for (const tag of taskTags) {
+        if (typeof tag === 'string' && text.includes(tag.toLowerCase())) score += 20
       }
     } catch { /* ignore */ }
   }

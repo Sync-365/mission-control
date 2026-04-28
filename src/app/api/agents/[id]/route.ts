@@ -81,14 +81,25 @@ export async function PUT(
     const now = Math.floor(Date.now() / 1000)
     const existingConfig = agent.config ? JSON.parse(agent.config) : {}
 
+    const normalizeIncomingConfig = (source: any) => {
+      if (!source || typeof source !== 'object') return source
+      const next = { ...source }
+      if (next.sandbox && typeof next.sandbox === 'object' && next.sandbox.mode === 'none') {
+        next.sandbox = { ...next.sandbox, mode: 'off' }
+      }
+      return next
+    }
+
+    const normalizedGatewayConfig = normalizeIncomingConfig(gateway_config)
+
     // Merge gateway_config into existing config
     let newConfig = existingConfig
-    if (gateway_config && typeof gateway_config === 'object') {
-      newConfig = { ...existingConfig, ...gateway_config }
+    if (normalizedGatewayConfig && typeof normalizedGatewayConfig === 'object') {
+      newConfig = { ...existingConfig, ...normalizedGatewayConfig }
     }
 
     const shouldWriteToGateway = Boolean(
-      gateway_config &&
+      normalizedGatewayConfig &&
       (write_to_gateway === undefined || write_to_gateway === null || write_to_gateway === true)
     )
     const openclawId = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
@@ -118,7 +129,7 @@ export async function PUT(
         values.push(role)
       }
 
-      if (gateway_config) {
+      if (normalizedGatewayConfig) {
         fields.push('config = ?')
         values.push(JSON.stringify(newConfig))
       }
@@ -131,7 +142,7 @@ export async function PUT(
 
     if (shouldWriteToGateway) {
       try {
-        await writeAgentToConfig(getWriteBackPayload(gateway_config))
+        await writeAgentToConfig(getWriteBackPayload(normalizedGatewayConfig))
       } catch (err: any) {
         // Gateway write failed — revert DB to previous state
         try {

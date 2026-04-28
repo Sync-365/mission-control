@@ -18,6 +18,18 @@ import { SessionMessage, shouldShowTimestamp, type SessionTranscriptMessage } fr
 
 const log = createClientLogger('TaskBoard')
 
+const TASK_THINKING_OPTIONS = [
+  { value: '', label: 'Agent default' },
+  { value: 'off', label: 'Off' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'XHigh' },
+  { value: 'adaptive', label: 'Adaptive' },
+  { value: 'max', label: 'Max' },
+]
+
 interface Task {
   id: number
   title: string
@@ -2070,6 +2082,7 @@ function CreateTaskModal({
     title: '',
     description: '',
     priority: 'medium' as Task['priority'],
+    status: 'backlog' as Task['status'],
     project_id: projects[0]?.id ? String(projects[0].id) : '',
     assigned_to: '',
     tags: '',
@@ -2136,8 +2149,9 @@ function CreateTaskModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
+          status: formData.status,
           project_id: formData.project_id ? Number(formData.project_id) : undefined,
-          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
+          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
           assigned_to: formData.assigned_to || undefined,
           metadata,
         })
@@ -2191,6 +2205,20 @@ function CreateTaskModal({
             </div>
             
             <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="create-status" className="block text-sm text-muted-foreground mb-1">Placement</label>
+                <select
+                  id="create-status"
+                  value={formData.status}
+                  onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as Task['status'] }))}
+                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  <option value="backlog">Backlog — do not run</option>
+                  <option value="inbox">Inbox — available for routing</option>
+                  <option value="assigned">Queue assigned task</option>
+                </select>
+              </div>
+
               <div>
                 <label htmlFor="create-priority" className="block text-sm text-muted-foreground mb-1">{t('fieldPriority')}</label>
                 <select
@@ -2283,10 +2311,9 @@ function CreateTaskModal({
                   onChange={(e) => setFormData(prev => ({ ...prev, thinking: e.target.value }))}
                   className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
                 >
-                  <option value="">Agent default</option>
-                  <option value="low">Light</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">Deep</option>
+                  {TASK_THINKING_OPTIONS.map(option => (
+                    <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -2419,7 +2446,7 @@ function EditTaskModal({
         body: JSON.stringify({
           ...formData,
           project_id: formData.project_id ? Number(formData.project_id) : undefined,
-          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
+          tags: formData.tags ? formData.tags.split(',').map(t => t.trim()).filter(Boolean) : [],
           assigned_to: formData.assigned_to || undefined,
           metadata: updatedMeta,
         })
@@ -2581,10 +2608,9 @@ function EditTaskModal({
                   onChange={(e) => setFormData(prev => ({ ...prev, thinking: e.target.value }))}
                   className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
                 >
-                  <option value="">Agent default</option>
-                  <option value="low">Light</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">Deep</option>
+                  {TASK_THINKING_OPTIONS.map(option => (
+                    <option key={option.value || 'default'} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
