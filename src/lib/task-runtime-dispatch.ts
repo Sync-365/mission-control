@@ -1,5 +1,6 @@
 import { join } from 'node:path'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { config } from '@/lib/config'
 import { runCommand, runOpenClaw } from '@/lib/command'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
@@ -196,6 +197,47 @@ function resolveTaskThinking(task: RuntimeDispatchTask): string | null {
   return null
 }
 
+function resolveConfiguredSkills(cfg: Record<string, any>): string[] {
+  const raw = cfg.skills
+  if (Array.isArray(raw)) return raw.map(String).map((skill) => skill.trim()).filter(Boolean)
+  if (typeof raw === 'string') return raw.split(',').map((skill) => skill.trim()).filter(Boolean)
+  return []
+}
+
+function findOpenClawSkillDir(skill: string): string | null {
+  if (!/^[a-zA-Z0-9._-]+$/.test(skill)) return null
+  const home = homedir()
+  const openclawState = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
+  const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(openclawState, 'workspace')
+  const roots = [
+    process.env.MC_SKILLS_OPENCLAW_DIR || join(openclawState, 'skills'),
+    process.env.MC_SKILLS_WORKSPACE_DIR || join(workspaceDir, 'skills'),
+    process.env.MC_SKILLS_USER_AGENTS_DIR || join(home, '.agents', 'skills'),
+    process.env.MC_SKILLS_USER_CODEX_DIR || join(home, '.codex', 'skills'),
+    process.env.MC_SKILLS_PROJECT_AGENTS_DIR || join(process.cwd(), '.agents', 'skills'),
+    process.env.MC_SKILLS_PROJECT_CODEX_DIR || join(process.cwd(), '.codex', 'skills'),
+  ]
+  for (const root of roots) {
+    const candidate = join(root, skill)
+    if (existsSync(join(candidate, 'SKILL.md'))) return candidate
+  }
+  return null
+}
+
+function ensureHermesSkillsAvailable(profileDir: string | null, skills: string[]): void {
+  if (!profileDir || skills.length === 0) return
+  const profileSkillsDir = join(profileDir, 'skills')
+  mkdirSync(profileSkillsDir, { recursive: true })
+  for (const skill of skills) {
+    if (!/^[a-zA-Z0-9._-]+$/.test(skill)) continue
+    const target = join(profileSkillsDir, skill)
+    if (existsSync(join(target, 'SKILL.md'))) continue
+    const source = findOpenClawSkillDir(skill)
+    if (!source) continue
+    cpSync(source, target, { recursive: true, errorOnExist: false })
+  }
+}
+
 function resolveProjectRuntimeEnv(task: RuntimeDispatchTask): NodeJS.ProcessEnv {
   const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
   const projectEnv = meta.project_env
@@ -304,10 +346,13 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
     }
   }
 
+  const configuredSkills = resolveConfiguredSkills(cfg)
+  ensureHermesSkillsAvailable(hermesProfileDir, configuredSkills)
+
   if (hermesProfile) args.unshift('--profile', hermesProfile)
   if (dispatchModel) args.push('--model', dispatchModel)
   if (typeof cfg.provider === 'string' && cfg.provider) args.push('--provider', cfg.provider)
-  if (typeof cfg.skills === 'string' && cfg.skills) args.push('--skills', cfg.skills)
+  if (configuredSkills.length > 0) args.push('--skills', configuredSkills.join(','))
   if (cfg.yolo === true) args.push('--yolo')
   args.push('--accept-hooks')
 
