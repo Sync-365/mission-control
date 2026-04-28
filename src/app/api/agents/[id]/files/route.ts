@@ -67,7 +67,7 @@ export async function GET(
     const requested = (new URL(request.url).searchParams.get('file') || '').trim()
     const files = requested
       ? [requested]
-      : ['agent.md', 'identity.md', 'soul.md', 'WORKING.md', 'MEMORY.md', 'TOOLS.md', 'AGENTS.md', 'MISSION.md', 'USER.md']
+      : ['identity.md', 'soul.md', 'WORKING.md', 'MEMORY.md', 'TOOLS.md', 'AGENTS.md', 'MISSION.md', 'USER.md']
 
     const payload: Record<string, { exists: boolean; content: string }> = {}
     for (const file of files) {
