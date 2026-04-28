@@ -68,7 +68,14 @@ export const createAgentSchema = z.object({
   write_to_gateway: z.boolean().optional(),
   provision_openclaw_workspace: z.boolean().optional(),
   openclaw_workspace_path: z.string().min(1).max(500).optional(),
-  runtime_type: z.enum(['hermes', 'openclaw', 'claude', 'codex', 'custom']).optional(),
+  runtime_type: z.enum(['hermes', 'openclaw', 'claude', 'codex', 'opencode', 'custom']).optional(),
+  instructions: z.string().max(50000).optional(),
+  skills: z.array(z.string().min(1).max(100)).max(50).optional(),
+  task_tags: z.array(z.string().min(1).max(100)).max(50).optional(),
+  tool_profile: z.string().max(100).optional(),
+  workspace_mode: z.enum(['none', 'default', 'dedicated', 'existing', 'runtime']).optional(),
+  model_primary: z.string().max(300).optional(),
+  model_provider: z.string().max(100).optional(),
 })
 
 export const bulkUpdateTaskStatusSchema = z.object({

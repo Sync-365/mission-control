@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
@@ -822,7 +822,71 @@ const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
   haiku: 'anthropic/claude-haiku-4-5',
 }
 
-// Enhanced Create Agent Modal with Template Wizard
+// Enhanced Create Agent Modal with generic runtime/profile wizard
+type CreateAgentRuntime = 'profile' | 'openclaw' | 'hermes' | 'claude' | 'codex' | 'custom'
+type WorkspaceMode = 'none' | 'default' | 'dedicated' | 'existing' | 'runtime'
+type ToolProfile = 'template' | 'readonly' | 'coding' | 'orchestrator' | 'research' | 'custom'
+
+type RuntimeOption = {
+  id: CreateAgentRuntime
+  label: string
+  description: string
+  createsWorkspace: string
+  writesGateway: boolean
+  canRunTasks: boolean
+}
+
+const RUNTIME_OPTIONS: RuntimeOption[] = [
+  {
+    id: 'profile',
+    label: 'Mission Control profile',
+    description: 'Record-only specialist profile for planning, assignment, humans, or an existing shared runtime/session.',
+    createsWorkspace: 'No runtime workspace by default',
+    writesGateway: false,
+    canRunTasks: false,
+  },
+  {
+    id: 'openclaw',
+    label: 'OpenClaw',
+    description: 'Native OpenClaw agent with provider/model, skills, tools, memory, workspace, and subagent policy.',
+    createsWorkspace: 'Can create a dedicated OpenClaw workspace',
+    writesGateway: true,
+    canRunTasks: true,
+  },
+  {
+    id: 'hermes',
+    label: 'Hermes profile',
+    description: 'Creates or updates a Hermes profile. This is not a second Hermes install; it is a named Hermes persona/profile.',
+    createsWorkspace: 'Uses Hermes profile storage',
+    writesGateway: false,
+    canRunTasks: true,
+  },
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    description: 'Mission Control task worker using the local Claude Code CLI with this agent’s instructions/model defaults.',
+    createsWorkspace: 'Uses selected/default working directory',
+    writesGateway: false,
+    canRunTasks: true,
+  },
+  {
+    id: 'codex',
+    label: 'Codex CLI',
+    description: 'Mission Control task worker using the local Codex CLI with this agent’s instructions/model defaults.',
+    createsWorkspace: 'Uses selected/default working directory',
+    writesGateway: false,
+    canRunTasks: true,
+  },
+  {
+    id: 'custom',
+    label: 'Custom / external',
+    description: 'Record an external/manual agent integration without provisioning a managed runtime.',
+    createsWorkspace: 'No managed workspace',
+    writesGateway: false,
+    canRunTasks: false,
+  },
+]
+
 export function CreateAgentModal({
   onClose,
   onCreated
@@ -830,23 +894,30 @@ export function CreateAgentModal({
   onClose: () => void
   onCreated: () => void
 }) {
-  const t = useTranslations('agentDetail')
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null)
-  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [availableModels, setAvailableModels] = useState<Array<{ name: string; alias?: string; provider: string }>>([])
   const [formData, setFormData] = useState({
     name: '',
     id: '',
     role: '',
     emoji: '',
+    runtime: 'openclaw' as CreateAgentRuntime,
     modelTier: 'sonnet' as 'opus' | 'sonnet' | 'haiku',
     modelPrimary: DEFAULT_MODEL_BY_TIER.sonnet,
+    provider: 'anthropic',
+    workspaceMode: 'dedicated' as WorkspaceMode,
+    existingWorkspacePath: '',
     workspaceAccess: 'rw' as 'rw' | 'ro' | 'none',
     sandboxMode: 'all' as 'all' | 'non-main',
     dockerNetwork: 'none' as 'none' | 'bridge',
     session_key: '',
+    instructions: '',
+    skillsText: '',
+    taskTagsText: '',
+    toolProfile: 'template' as ToolProfile,
+    subagentPolicy: 'template' as 'template' | 'none' | 'allowed' | 'all',
     write_to_gateway: true,
-    provision_openclaw_workspace: true,
   })
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -855,8 +926,22 @@ export function CreateAgentModal({
   const [progressSteps, setProgressSteps] = useState<ProgressStep[] | null>(null)
 
   const selectedTemplateData = TEMPLATES.find(t => t.type === selectedTemplate)
+  const selectedRuntime = RUNTIME_OPTIONS.find(option => option.id === formData.runtime) || RUNTIME_OPTIONS[1]
+  const groupedModels = useMemo(() => {
+    const groups: Record<string, Array<{ name: string; alias?: string; provider: string }>> = {}
+    for (const model of availableModels) {
+      const provider = model.provider || (model.name.includes('/') ? model.name.split('/')[0] : 'unknown')
+      if (!groups[provider]) groups[provider] = []
+      groups[provider].push(model)
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+  }, [availableModels])
 
-  // Auto-generate kebab-case ID from name
+  const parsedSkills = formData.skillsText.split(',').map(s => s.trim()).filter(Boolean)
+  const parsedTaskTags = formData.taskTagsText.split(',').map(s => s.trim()).filter(Boolean)
+  const provisionOpenClawWorkspace = formData.runtime === 'openclaw' && formData.workspaceMode === 'dedicated'
+  const writeToGateway = formData.runtime === 'openclaw' && formData.write_to_gateway
+
   const updateName = (name: string) => {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     setFormData(prev => ({ ...prev, name, id }))
@@ -869,10 +954,19 @@ export function CreateAgentModal({
         if (!response.ok) return
         const data = await response.json()
         const models = Array.isArray(data.models) ? data.models : []
-        const names = models
-          .map((model: any) => String(model.name || model.alias || '').trim())
-          .filter(Boolean)
-        setAvailableModels(Array.from(new Set<string>(names)))
+        const normalized = models
+          .map((model: any) => {
+            const name = String(model.name || model.key || model.alias || '').trim()
+            if (!name) return null
+            return {
+              name,
+              alias: String(model.alias || model.name || '').trim() || undefined,
+              provider: String(model.provider || (name.includes('/') ? name.split('/')[0] : 'unknown')).trim(),
+            }
+          })
+          .filter(Boolean) as Array<{ name: string; alias?: string; provider: string }>
+        const deduped = Array.from(new Map(normalized.map(model => [model.name, model])).values())
+        setAvailableModels(deduped)
       } catch {
         // Keep modal usable without model suggestions.
       }
@@ -880,24 +974,41 @@ export function CreateAgentModal({
     loadAvailableModels()
   }, [])
 
-  // When template is selected, pre-fill form
   const selectTemplate = (type: string | null) => {
     setSelectedTemplate(type)
-    if (type) {
-      const tmpl = TEMPLATES.find(t => t.type === type)
-      if (tmpl) {
-        setFormData(prev => ({
-          ...prev,
-          role: tmpl.theme,
-          emoji: tmpl.emoji,
-          modelTier: tmpl.modelTier,
-          modelPrimary: DEFAULT_MODEL_BY_TIER[tmpl.modelTier],
-          workspaceAccess: type === 'researcher' || type === 'content-creator' ? 'none' : type === 'reviewer' || type === 'security-auditor' ? 'ro' : 'rw',
-          sandboxMode: type === 'orchestrator' ? 'non-main' : 'all',
-          dockerNetwork: type === 'developer' || type === 'specialist-dev' ? 'bridge' : 'none',
-        }))
+    if (!type) return
+    const tmpl = TEMPLATES.find(t => t.type === type)
+    if (!tmpl) return
+
+    const suggestedInstructions = `You are a ${tmpl.label.toLowerCase()} specialist. Focus on ${tmpl.theme}. Keep work scoped, document assumptions, and report clear verification steps.`
+    setFormData(prev => ({
+      ...prev,
+      role: tmpl.theme,
+      emoji: tmpl.emoji,
+      modelTier: tmpl.modelTier,
+      modelPrimary: DEFAULT_MODEL_BY_TIER[tmpl.modelTier],
+      provider: DEFAULT_MODEL_BY_TIER[tmpl.modelTier].split('/')[0] || prev.provider,
+      workspaceAccess: type === 'researcher' || type === 'content-creator' ? 'none' : type === 'reviewer' || type === 'security-auditor' ? 'ro' : 'rw',
+      sandboxMode: type === 'orchestrator' ? 'non-main' : 'all',
+      dockerNetwork: type === 'developer' || type === 'specialist-dev' ? 'bridge' : 'none',
+      toolProfile: type === 'orchestrator' ? 'orchestrator' : type === 'reviewer' || type === 'security-auditor' ? 'readonly' : type === 'researcher' ? 'research' : type === 'developer' || type === 'specialist-dev' ? 'coding' : 'template',
+      subagentPolicy: type === 'orchestrator' ? 'all' : 'template',
+      instructions: prev.instructions || suggestedInstructions,
+    }))
+  }
+
+  const updateRuntime = (runtime: CreateAgentRuntime) => {
+    setFormData(prev => {
+      const openclaw = runtime === 'openclaw'
+      const hermes = runtime === 'hermes'
+      return {
+        ...prev,
+        runtime,
+        write_to_gateway: openclaw,
+        workspaceMode: openclaw ? 'dedicated' : hermes ? 'runtime' : runtime === 'profile' || runtime === 'custom' ? 'none' : 'default',
+        session_key: runtime === 'profile' ? prev.session_key : prev.session_key,
       }
-    }
+    })
   }
 
   const handleCreate = async () => {
@@ -905,25 +1016,23 @@ export function CreateAgentModal({
       setError('Name is required')
       return
     }
+    if (!formData.role.trim()) {
+      setError('Role / specialisation is required')
+      return
+    }
+
     setIsCreating(true)
     setError(null)
 
-    // Build progress steps based on checkbox state
-    const steps: ProgressStep[] = [
-      { label: t('stepCreatingRecord'), status: 'pending' },
-    ]
-    if (formData.write_to_gateway) {
-      steps.push({ label: t('stepWritingGateway'), status: 'pending' })
-    }
-    if (formData.provision_openclaw_workspace) {
-      steps.push({ label: t('stepProvisioningWorkspace'), status: 'pending' })
-    }
+    const steps: ProgressStep[] = [{ label: 'Create Mission Control profile', status: 'pending' }]
+    if (writeToGateway) steps.push({ label: 'Write OpenClaw agent config', status: 'pending' })
+    if (provisionOpenClawWorkspace) steps.push({ label: 'Provision OpenClaw workspace', status: 'pending' })
+    if (formData.runtime === 'hermes') steps.push({ label: 'Create/update Hermes profile', status: 'pending' })
     setProgressSteps([...steps])
 
-    // Animate steps to 'active' one-by-one with stagger
     const animateSteps = async () => {
       for (let i = 0; i < steps.length; i++) {
-        await new Promise(r => setTimeout(r, 300))
+        await new Promise(r => setTimeout(r, 250))
         steps[i].status = 'active'
         setProgressSteps([...steps])
       }
@@ -931,8 +1040,37 @@ export function CreateAgentModal({
 
     try {
       const primaryModel = formData.modelPrimary.trim() || DEFAULT_MODEL_BY_TIER[formData.modelTier]
+      const gatewayConfig: Record<string, any> = {
+        model: { primary: primaryModel },
+        identity: { name: formData.name, theme: formData.role, emoji: formData.emoji },
+        specialization: {
+          instructions: formData.instructions,
+          taskTags: parsedTaskTags,
+          toolProfile: formData.toolProfile,
+          runtime: formData.runtime,
+        },
+        dispatchModel: primaryModel,
+        provider: formData.provider || (primaryModel.includes('/') ? primaryModel.split('/')[0] : undefined),
+      }
 
-      // Run animation and fetch concurrently
+      if (formData.runtime === 'openclaw') {
+        gatewayConfig.sandbox = {
+          mode: formData.sandboxMode,
+          workspaceAccess: formData.workspaceAccess,
+          scope: 'agent',
+          ...(formData.dockerNetwork === 'bridge' ? { docker: { network: 'bridge' } } : {}),
+        }
+        if (parsedSkills.length > 0) gatewayConfig.skills = parsedSkills
+        if (formData.subagentPolicy === 'all') gatewayConfig.subagents = { allowAgents: ['*'] }
+        if (formData.subagentPolicy === 'none') gatewayConfig.subagents = { allowAgents: [] }
+      }
+
+      if (formData.workspaceMode === 'existing' && formData.existingWorkspacePath.trim()) {
+        gatewayConfig.workspace = formData.existingWorkspacePath.trim()
+        gatewayConfig.cwd = formData.existingWorkspacePath.trim()
+      }
+
+      const runtimeType = formData.runtime === 'profile' ? 'custom' : formData.runtime === 'custom' ? 'custom' : formData.runtime
       const [response] = await Promise.all([
         fetch('/api/agents', {
           method: 'POST',
@@ -942,47 +1080,57 @@ export function CreateAgentModal({
             openclaw_id: formData.id || undefined,
             role: formData.role,
             session_key: formData.session_key || undefined,
+            soul_content: formData.instructions || undefined,
             template: selectedTemplate || undefined,
-            write_to_gateway: formData.write_to_gateway,
-            provision_openclaw_workspace: formData.provision_openclaw_workspace,
-            gateway_config: {
-              model: { primary: primaryModel },
-              identity: { name: formData.name, theme: formData.role, emoji: formData.emoji },
-              sandbox: {
-                mode: formData.sandboxMode,
-                workspaceAccess: formData.workspaceAccess,
-                scope: 'agent',
-                ...(formData.dockerNetwork === 'bridge' ? { docker: { network: 'bridge' } } : {}),
-              },
+            runtime_type: runtimeType,
+            write_to_gateway: writeToGateway,
+            provision_openclaw_workspace: provisionOpenClawWorkspace,
+            openclaw_workspace_path: formData.workspaceMode === 'existing' ? formData.existingWorkspacePath.trim() || undefined : undefined,
+            instructions: formData.instructions || undefined,
+            skills: parsedSkills,
+            task_tags: parsedTaskTags,
+            tool_profile: formData.toolProfile,
+            workspace_mode: formData.workspaceMode,
+            model_primary: primaryModel,
+            model_provider: formData.provider,
+            gateway_config: gatewayConfig,
+            config: {
+              runtime_type: formData.runtime,
+              profileOnly: formData.runtime === 'profile',
+              instructions: formData.instructions,
+              skills: parsedSkills,
+              taskTags: parsedTaskTags,
+              toolProfile: formData.toolProfile,
+              workspaceMode: formData.workspaceMode,
+              provider: formData.provider,
             },
           }),
         }),
         animateSteps(),
       ])
 
+      const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        const data = await response.json()
         const errMsg = data.error || 'Failed to create agent'
-        // Determine which step failed based on error message
-        const failIdx =
-          /provision|openclaw/i.test(errMsg) ? steps.findIndex(s => s.label.includes('Provisioning')) :
-          /gateway/i.test(errMsg) ? steps.findIndex(s => s.label.includes('gateway')) :
-          0
+        const failIdx = /hermes/i.test(errMsg)
+          ? steps.findIndex(s => s.label.includes('Hermes'))
+          : /provision|workspace/i.test(errMsg)
+            ? steps.findIndex(s => s.label.includes('workspace'))
+            : /gateway|config/i.test(errMsg)
+              ? steps.findIndex(s => s.label.includes('OpenClaw'))
+              : 0
         const idx = failIdx >= 0 ? failIdx : 0
         steps[idx].status = 'error'
         steps[idx].error = errMsg
-        // Mark later steps back to pending
         for (let i = idx + 1; i < steps.length; i++) steps[i].status = 'pending'
         setProgressSteps([...steps])
         return
       }
 
-      // All done
       for (const s of steps) s.status = 'done'
       setProgressSteps([...steps])
-      setTimeout(() => { onCreated(); onClose() }, 1500)
+      setTimeout(() => { onCreated(); onClose() }, 900)
     } catch (err: any) {
-      // Network/unexpected error — fail first step
       steps[0].status = 'error'
       steps[0].error = err.message || 'Unexpected error'
       for (let i = 1; i < steps.length; i++) steps[i].status = 'pending'
@@ -992,44 +1140,46 @@ export function CreateAgentModal({
     }
   }
 
+  const reviewItems = [
+    'Mission Control agent/profile record',
+    ...(writeToGateway ? ['OpenClaw gateway agents.list entry'] : []),
+    ...(provisionOpenClawWorkspace ? [`Dedicated OpenClaw workspace for ${formData.id || '<agent-id>'}`] : []),
+    ...(formData.runtime === 'hermes' ? [`Hermes profile named ${formData.name || '<name>'}`] : []),
+    ...(formData.instructions.trim() ? ['Specialised instruction file/content'] : []),
+  ]
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-card border border-border rounded-lg max-w-2xl w-full max-h-[85vh] flex flex-col">
-        {/* Header */}
+      <div className="bg-card border border-border rounded-lg max-w-3xl w-full max-h-[88vh] flex flex-col">
         <div className="p-6 border-b border-border flex-shrink-0">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-xl font-bold text-foreground">{t('createNewAgent')}</h3>
-              <div className="flex gap-3 mt-2">
-                {[1, 2, 3].map(s => (
-                  <div key={s} className="flex items-center gap-1.5">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
-                      step === s ? 'bg-primary text-primary-foreground' :
-                      step > s ? 'bg-green-500/20 text-green-400' :
-                      'bg-surface-2 text-muted-foreground'
-                    }`}>
-                      {step > s ? '\u2713' : s}
+              <h3 className="text-xl font-bold text-foreground">Create Agent / Profile</h3>
+              <div className="flex flex-wrap gap-3 mt-2">
+                {(['Archetype', 'Backend', 'Specialise', 'Review'] as const).map((label, index) => {
+                  const n = (index + 1) as 1 | 2 | 3 | 4
+                  return (
+                    <div key={label} className="flex items-center gap-1.5">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
+                        step === n ? 'bg-primary text-primary-foreground' :
+                        step > n ? 'bg-green-500/20 text-green-400' :
+                        'bg-surface-2 text-muted-foreground'
+                      }`}>
+                        {step > n ? '✓' : n}
+                      </div>
+                      <span className={`text-xs ${step === n ? 'text-foreground' : 'text-muted-foreground'}`}>{label}</span>
                     </div>
-                    <span className={`text-xs ${step === s ? 'text-foreground' : 'text-muted-foreground'}`}>
-                      {s === 1 ? t('stepTemplate') : s === 2 ? t('stepConfigure') : t('stepReview')}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
-            <Button onClick={onClose} variant="ghost" size="icon-sm" className="text-2xl">x</Button>
+            <Button onClick={onClose} variant="ghost" size="icon-sm" className="text-2xl">×</Button>
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 mb-4 rounded-lg text-sm">
-              {error}
-            </div>
-          )}
+          {error && <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 mb-4 rounded-lg text-sm">{error}</div>}
 
-          {/* Step 1: Choose Template */}
           {step === 1 && (
             <div className="grid grid-cols-2 gap-3">
               {TEMPLATES.map(tmpl => (
@@ -1037,9 +1187,7 @@ export function CreateAgentModal({
                   key={tmpl.type}
                   onClick={() => { selectTemplate(tmpl.type); setStep(2) }}
                   variant="outline"
-                  className={`p-4 h-auto text-left flex flex-col items-start ${
-                    selectedTemplate === tmpl.type ? 'border-primary bg-primary/5' : ''
-                  }`}
+                  className={`p-4 h-auto text-left flex flex-col items-start ${selectedTemplate === tmpl.type ? 'border-primary bg-primary/5' : ''}`}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-2xl">{tmpl.emoji}</span>
@@ -1047,213 +1195,213 @@ export function CreateAgentModal({
                   </div>
                   <p className="text-xs text-muted-foreground mb-2">{tmpl.description}</p>
                   <div className="flex gap-2">
-                    <span className={`px-2 py-0.5 text-xs rounded border ${MODEL_TIER_COLORS[tmpl.modelTier]}`}>
-                      {MODEL_TIER_LABELS[tmpl.modelTier]}
-                    </span>
-                    <span className="px-2 py-0.5 text-xs rounded bg-surface-2 text-muted-foreground">
-                      {t('toolCount', { count: tmpl.toolCount })}
-                    </span>
+                    <span className={`px-2 py-0.5 text-xs rounded border ${MODEL_TIER_COLORS[tmpl.modelTier]}`}>{MODEL_TIER_LABELS[tmpl.modelTier]}</span>
+                    <span className="px-2 py-0.5 text-xs rounded bg-surface-2 text-muted-foreground">{tmpl.toolCount} tools</span>
                   </div>
                 </Button>
               ))}
-              {/* Custom option */}
               <Button
                 onClick={() => { selectTemplate(null); setStep(2) }}
                 variant="outline"
-                className={`p-4 h-auto text-left flex flex-col items-start border-dashed ${
-                  selectedTemplate === null ? 'border-primary' : ''
-                }`}
+                className="p-4 h-auto text-left flex flex-col items-start border-dashed"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-2xl">+</span>
                   <span className="font-semibold text-foreground">Custom</span>
                 </div>
-                <p className="text-xs text-muted-foreground">{t('customDesc')}</p>
+                <p className="text-xs text-muted-foreground">Start with a blank specialist profile.</p>
               </Button>
             </div>
           )}
 
-          {/* Step 2: Configure */}
           {step === 2 && (
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('displayName')}</label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => updateName(e.target.value)}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                    placeholder={t('displayNamePlaceholder')}
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('agentId')}</label>
-                  <input
-                    type="text"
-                    value={formData.id}
-                    onChange={(e) => setFormData(prev => ({ ...prev, id: e.target.value }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm"
-                    placeholder="frontend-dev"
-                  />
-                </div>
+              <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-cyan-100/80">
+                A Mission Control profile is a record/persona only. Use it for humans, placeholders, planning roles, or a profile that points at an existing shared session. Hermes creates a named Hermes profile, not another Hermes installation/agent process.
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('roleTheme')}</label>
-                  <input
-                    type="text"
-                    value={formData.role}
-                    onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                    placeholder="builder engineer"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('emoji')}</label>
-                  <input
-                    type="text"
-                    value={formData.emoji}
-                    onChange={(e) => setFormData(prev => ({ ...prev, emoji: e.target.value }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                    placeholder="e.g. \ud83d\udee0\ufe0f"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-muted-foreground mb-1">{t('modelTier')}</label>
-                <div className="flex gap-2">
-                  {(['opus', 'sonnet', 'haiku'] as const).map(tier => (
-                    <Button
-                      key={tier}
-                      onClick={() => setFormData(prev => ({
-                        ...prev,
-                        modelTier: tier,
-                        modelPrimary: DEFAULT_MODEL_BY_TIER[tier],
-                      }))}
-                      variant={formData.modelTier === tier ? 'outline' : 'secondary'}
-                      className={`flex-1 ${
-                        formData.modelTier === tier ? MODEL_TIER_COLORS[tier] : ''
-                      }`}
-                    >
-                      {MODEL_TIER_LABELS[tier]}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-muted-foreground mb-1">{t('primaryModel')}</label>
-                <input
-                  type="text"
-                  value={formData.modelPrimary}
-                  onChange={(e) => setFormData(prev => ({ ...prev, modelPrimary: e.target.value }))}
-                  list="create-agent-model-suggestions"
-                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm"
-                  placeholder={DEFAULT_MODEL_BY_TIER[formData.modelTier]}
-                />
-                <datalist id="create-agent-model-suggestions">
-                  {availableModels.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('workspace')}</label>
-                  <select
-                    value={formData.workspaceAccess}
-                    onChange={(e) => setFormData(prev => ({ ...prev, workspaceAccess: e.target.value as any }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              <div className="grid grid-cols-2 gap-3">
+                {RUNTIME_OPTIONS.map(option => (
+                  <Button
+                    key={option.id}
+                    onClick={() => updateRuntime(option.id)}
+                    variant="outline"
+                    className={`p-4 h-auto text-left flex flex-col items-start ${formData.runtime === option.id ? 'border-primary bg-primary/5' : ''}`}
                   >
-                    <option value="rw">{t('readWrite')}</option>
-                    <option value="ro">{t('readOnly')}</option>
-                    <option value="none">{t('none')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('sandbox')}</label>
-                  <select
-                    value={formData.sandboxMode}
-                    onChange={(e) => setFormData(prev => ({ ...prev, sandboxMode: e.target.value as any }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
-                    <option value="all">{t('sandboxAll')}</option>
-                    <option value="non-main">{t('sandboxNonMain')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-muted-foreground mb-1">{t('network')}</label>
-                  <select
-                    value={formData.dockerNetwork}
-                    onChange={(e) => setFormData(prev => ({ ...prev, dockerNetwork: e.target.value as any }))}
-                    className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  >
-                    <option value="none">{t('networkIsolated')}</option>
-                    <option value="bridge">{t('networkBridge')}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-muted-foreground mb-1">{t('sessionKeyOptional')}</label>
-                <input
-                  type="text"
-                  value={formData.session_key}
-                  onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
-                  className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  placeholder={t('sessionKeyPlaceholder')}
-                />
+                    <div className="flex items-center justify-between w-full mb-2">
+                      <span className="font-semibold text-foreground">{option.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${option.canRunTasks ? 'bg-green-500/15 text-green-300' : 'bg-surface-2 text-muted-foreground'}`}>{option.canRunTasks ? 'task runtime' : 'profile'}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-2">{option.description}</p>
+                    <p className="text-[11px] text-muted-foreground/70">{option.createsWorkspace}</p>
+                  </Button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Step 3: Review */}
           {step === 3 && (
             <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Display name</label>
+                  <input type="text" value={formData.name} onChange={(e) => updateName(e.target.value)} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="Frontend Astro Specialist" autoFocus />
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Agent/profile ID</label>
+                  <input type="text" value={formData.id} onChange={(e) => setFormData(prev => ({ ...prev, id: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" placeholder="frontend-astro" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Role / specialisation</label>
+                  <input type="text" value={formData.role} onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="Astro frontend UI specialist" />
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Emoji</label>
+                  <input type="text" value={formData.emoji} onChange={(e) => setFormData(prev => ({ ...prev, emoji: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="🧑‍🎨" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1">Specialised instructions</label>
+                <textarea value={formData.instructions} onChange={(e) => setFormData(prev => ({ ...prev, instructions: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" rows={5} placeholder="Describe how this specialist should work, what it should optimise for, boundaries, preferred stack, review criteria…" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Skills allowlist</label>
+                  <input type="text" value={formData.skillsText} onChange={(e) => setFormData(prev => ({ ...prev, skillsText: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="task-decomposition, github, coding-agent" />
+                  <p className="text-[11px] text-muted-foreground/70 mt-1">Comma-separated. Empty means inherit/default behaviour.</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Task tags/types</label>
+                  <input type="text" value={formData.taskTagsText} onChange={(e) => setFormData(prev => ({ ...prev, taskTagsText: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="frontend, astro, ui" />
+                  <p className="text-[11px] text-muted-foreground/70 mt-1">Used for routing/planning metadata.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Provider/model</label>
+                  <select value={formData.modelPrimary} onChange={(e) => {
+                    const value = e.target.value
+                    setFormData(prev => ({ ...prev, modelPrimary: value, provider: value.includes('/') ? value.split('/')[0] : prev.provider }))
+                  }} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm">
+                    <option value={formData.modelPrimary}>{formData.modelPrimary}</option>
+                    {groupedModels.map(([provider, models]) => (
+                      <optgroup key={provider} label={provider}>
+                        {models.map(model => <option key={model.name} value={model.name}>{model.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Raw model override</label>
+                  <input type="text" value={formData.modelPrimary} onChange={(e) => setFormData(prev => ({ ...prev, modelPrimary: e.target.value, provider: e.target.value.includes('/') ? e.target.value.split('/')[0] : prev.provider }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Tool profile</label>
+                  <select value={formData.toolProfile} onChange={(e) => setFormData(prev => ({ ...prev, toolProfile: e.target.value as ToolProfile }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    <option value="template">Template default</option>
+                    <option value="readonly">Readonly/review</option>
+                    <option value="coding">Coding</option>
+                    <option value="orchestrator">Orchestrator</option>
+                    <option value="research">Research</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Workspace mode</label>
+                  <select value={formData.workspaceMode} onChange={(e) => setFormData(prev => ({ ...prev, workspaceMode: e.target.value as WorkspaceMode }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    <option value="none">No workspace</option>
+                    <option value="default">Default/shared workspace</option>
+                    <option value="dedicated" disabled={formData.runtime !== 'openclaw'}>Create dedicated OpenClaw workspace</option>
+                    <option value="existing">Existing path</option>
+                    <option value="runtime">Runtime-managed profile/workspace</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Workspace access</label>
+                  <select value={formData.workspaceAccess} onChange={(e) => setFormData(prev => ({ ...prev, workspaceAccess: e.target.value as any }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    <option value="rw">Read/write</option>
+                    <option value="ro">Read-only</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Subagents</label>
+                  <select value={formData.subagentPolicy} onChange={(e) => setFormData(prev => ({ ...prev, subagentPolicy: e.target.value as any }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    <option value="template">Template default</option>
+                    <option value="none">None</option>
+                    <option value="allowed">Allowed by backend</option>
+                    <option value="all">Allow all</option>
+                  </select>
+                </div>
+              </div>
+
+              {formData.workspaceMode === 'existing' && (
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Existing workspace path</label>
+                  <input type="text" value={formData.existingWorkspacePath} onChange={(e) => setFormData(prev => ({ ...prev, existingWorkspacePath: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" placeholder="/home/leon/project" />
+                </div>
+              )}
+
+              {formData.runtime === 'openclaw' && (
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm text-muted-foreground mb-1">Sandbox</label>
+                    <select value={formData.sandboxMode} onChange={(e) => setFormData(prev => ({ ...prev, sandboxMode: e.target.value as any }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                      <option value="all">All sessions</option>
+                      <option value="non-main">Non-main only</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-muted-foreground mb-1">Network</label>
+                    <select value={formData.dockerNetwork} onChange={(e) => setFormData(prev => ({ ...prev, dockerNetwork: e.target.value as any }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                      <option value="none">Isolated</option>
+                      <option value="bridge">Bridge</option>
+                    </select>
+                  </div>
+                  <label className="flex items-end gap-2 cursor-pointer pb-2">
+                    <input type="checkbox" checked={formData.write_to_gateway} onChange={(e) => setFormData(prev => ({ ...prev, write_to_gateway: e.target.checked }))} className="w-4 h-4 rounded border-border" />
+                    <span className="text-sm text-foreground">Add to OpenClaw config</span>
+                  </label>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1">Existing session key / profile target</label>
+                <input type="text" value={formData.session_key} onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="Optional: existing OpenClaw session key or external profile reference" />
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="space-y-4">
               {progressSteps ? (
-                /* Progress view */
                 <div className="space-y-3 py-4">
-                  <h4 className="text-sm font-medium text-muted-foreground mb-4">{t('settingUpAgent')}</h4>
+                  <h4 className="text-sm font-medium text-muted-foreground mb-4">Setting up agent/profile</h4>
                   {progressSteps.map((ps, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <div className="w-5 h-5 flex items-center justify-center flex-shrink-0 mt-0.5">
-                        {ps.status === 'active' && (
-                          <span className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        )}
-                        {ps.status === 'done' && (
-                          <span className="text-green-400 text-sm font-bold">✓</span>
-                        )}
-                        {ps.status === 'error' && (
-                          <span className="text-red-400 text-sm font-bold">✕</span>
-                        )}
-                        {ps.status === 'pending' && (
-                          <span className="inline-block w-3 h-3 rounded-full border border-muted-foreground/40" />
-                        )}
+                        {ps.status === 'active' && <span className="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
+                        {ps.status === 'done' && <span className="text-green-400 text-sm font-bold">✓</span>}
+                        {ps.status === 'error' && <span className="text-red-400 text-sm font-bold">✕</span>}
+                        {ps.status === 'pending' && <span className="inline-block w-3 h-3 rounded-full border border-muted-foreground/40" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span className={`text-sm ${
-                          ps.status === 'error' ? 'text-red-400' :
-                          ps.status === 'done' ? 'text-green-400' :
-                          ps.status === 'active' ? 'text-foreground' :
-                          'text-muted-foreground'
-                        }`}>{ps.label}</span>
-                        {ps.error && (
-                          <p className="text-xs text-red-400/80 mt-1">{ps.error}</p>
-                        )}
+                        <span className={`text-sm ${ps.status === 'error' ? 'text-red-400' : ps.status === 'done' ? 'text-green-400' : ps.status === 'active' ? 'text-foreground' : 'text-muted-foreground'}`}>{ps.label}</span>
+                        {ps.error && <p className="text-xs text-red-400/80 mt-1">{ps.error}</p>}
                       </div>
                     </div>
                   ))}
-                  {progressSteps.every(s => s.status === 'done') && (
-                    <p className="text-sm text-green-400 mt-4">{t('agentCreatedSuccess')}</p>
-                  )}
+                  {progressSteps.every(s => s.status === 'done') && <p className="text-sm text-green-400 mt-4">Agent/profile created.</p>}
                 </div>
               ) : (
-                /* Review summary */
                 <>
                   <div className="bg-surface-1/50 rounded-lg p-4 space-y-3">
                     <div className="flex items-center gap-3">
@@ -1263,102 +1411,55 @@ export function CreateAgentModal({
                         <p className="text-muted-foreground text-sm">{formData.role}</p>
                       </div>
                     </div>
-
                     <div className="grid grid-cols-2 gap-2 text-sm">
-                      <div><span className="text-muted-foreground">{t('idLabel')}:</span> <span className="text-foreground font-mono">{formData.id}</span></div>
-                      <div><span className="text-muted-foreground">{t('templateLabel')}:</span> <span className="text-foreground">{selectedTemplateData?.label || t('custom')}</span></div>
-                      <div><span className="text-muted-foreground">{t('model')}:</span> <span className={`px-2 py-0.5 rounded text-xs ${MODEL_TIER_COLORS[formData.modelTier]}`}>{MODEL_TIER_LABELS[formData.modelTier]}</span></div>
-                      <div><span className="text-muted-foreground">{t('toolsLabel')}:</span> <span className="text-foreground">{selectedTemplateData?.toolCount || t('custom')}</span></div>
-                      <div className="col-span-2"><span className="text-muted-foreground">{t('primaryModel')}:</span> <span className="text-foreground font-mono">{formData.modelPrimary || DEFAULT_MODEL_BY_TIER[formData.modelTier]}</span></div>
-                      <div><span className="text-muted-foreground">{t('workspace')}:</span> <span className="text-foreground">{formData.workspaceAccess}</span></div>
-                      <div><span className="text-muted-foreground">{t('sandbox')}:</span> <span className="text-foreground">{formData.sandboxMode}</span></div>
-                      <div><span className="text-muted-foreground">{t('network')}:</span> <span className="text-foreground">{formData.dockerNetwork}</span></div>
-                      {formData.session_key && (
-                        <div><span className="text-muted-foreground">{t('session')}:</span> <span className="text-foreground font-mono">{formData.session_key}</span></div>
-                      )}
+                      <div><span className="text-muted-foreground">Backend:</span> <span className="text-foreground">{selectedRuntime.label}</span></div>
+                      <div><span className="text-muted-foreground">ID:</span> <span className="text-foreground font-mono">{formData.id}</span></div>
+                      <div><span className="text-muted-foreground">Model:</span> <span className="text-foreground font-mono">{formData.modelPrimary}</span></div>
+                      <div><span className="text-muted-foreground">Workspace:</span> <span className="text-foreground">{formData.workspaceMode}</span></div>
+                      <div><span className="text-muted-foreground">Skills:</span> <span className="text-foreground">{parsedSkills.length ? parsedSkills.join(', ') : 'inherit/default'}</span></div>
+                      <div><span className="text-muted-foreground">Tags:</span> <span className="text-foreground">{parsedTaskTags.length ? parsedTaskTags.join(', ') : 'none'}</span></div>
                     </div>
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.write_to_gateway}
-                      onChange={(e) => setFormData(prev => ({ ...prev, write_to_gateway: e.target.checked }))}
-                      className="w-4 h-4 rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('addToGateway')}</span>
-                  </label>
+                  <div className="rounded-lg border border-border bg-surface-1/40 p-4">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">What will be created</h4>
+                    <ul className="space-y-1 text-sm text-muted-foreground list-disc list-inside">
+                      {reviewItems.map(item => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.provision_openclaw_workspace}
-                      onChange={(e) => setFormData(prev => ({ ...prev, provision_openclaw_workspace: e.target.checked }))}
-                      className="w-4 h-4 rounded border-border"
-                    />
-                    <span className="text-sm text-foreground">{t('provisionWorkspace')}</span>
-                  </label>
+                  <div className="rounded-lg border border-border bg-surface-1/40 p-4">
+                    <h4 className="text-sm font-semibold text-foreground mb-2">Backend behaviour</h4>
+                    <p className="text-sm text-muted-foreground">{selectedRuntime.description}</p>
+                    <p className="text-xs text-muted-foreground/70 mt-2">{selectedRuntime.createsWorkspace}</p>
+                  </div>
                 </>
               )}
             </div>
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-6 border-t border-border flex gap-3 flex-shrink-0">
           {progressSteps ? (
-            /* During/after progress */
             progressSteps.some(s => s.status === 'error') ? (
               <>
                 <div className="flex-1" />
-                <Button onClick={() => { setProgressSteps(null); handleCreate() }} size="lg">
-                  {t('retry')}
-                </Button>
-                <Button onClick={onClose} variant="secondary">
-                  {t('close')}
-                </Button>
+                <Button onClick={() => { setProgressSteps(null); handleCreate() }} size="lg">Retry</Button>
+                <Button onClick={onClose} variant="secondary">Close</Button>
               </>
             ) : progressSteps.every(s => s.status === 'done') ? (
-              <>
-                <div className="flex-1" />
-                <span className="text-sm text-muted-foreground self-center">{t('closing')}</span>
-              </>
-            ) : (
-              /* In-progress — no buttons */
-              <div className="flex-1" />
-            )
+              <><div className="flex-1" /><span className="text-sm text-muted-foreground self-center">Closing…</span></>
+            ) : <div className="flex-1" />
           ) : (
-            /* Normal navigation */
             <>
-              {step > 1 && (
-                <Button
-                  onClick={() => setStep((step - 1) as 1 | 2)}
-                  variant="secondary"
-                >
-                  {t('back')}
-                </Button>
-              )}
+              {step > 1 && <Button onClick={() => setStep((step - 1) as 1 | 2 | 3)} variant="secondary">Back</Button>}
               <div className="flex-1" />
-              {step < 3 ? (
-                <Button
-                  onClick={() => setStep((step + 1) as 2 | 3)}
-                  disabled={step === 2 && !formData.name.trim()}
-                  size="lg"
-                >
-                  {t('next')}
-                </Button>
+              {step < 4 ? (
+                <Button onClick={() => setStep((step + 1) as 2 | 3 | 4)} disabled={step === 3 && (!formData.name.trim() || !formData.role.trim())} size="lg">Next</Button>
               ) : (
-                <Button
-                  onClick={handleCreate}
-                  disabled={isCreating || !formData.name.trim()}
-                  size="lg"
-                >
-                  {t('createAgent')}
-                </Button>
+                <Button onClick={handleCreate} disabled={isCreating || !formData.name.trim() || !formData.role.trim()} size="lg">Create</Button>
               )}
-              <Button onClick={onClose} variant="secondary">
-                {t('cancel')}
-              </Button>
+              <Button onClick={onClose} variant="secondary">Cancel</Button>
             </>
           )}
         </div>

@@ -99,6 +99,22 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
     lines.push(`Tags: ${task.tags.join(', ')}`)
   }
 
+  try {
+    const cfg = task.agent_config ? JSON.parse(task.agent_config) : {}
+    const specialization = cfg.specialization && typeof cfg.specialization === 'object' ? cfg.specialization : {}
+    const instructions = typeof cfg.instructions === 'string' && cfg.instructions.trim()
+      ? cfg.instructions.trim()
+      : typeof specialization.instructions === 'string' && specialization.instructions.trim()
+        ? specialization.instructions.trim()
+        : ''
+    const skills = Array.isArray(cfg.skills) ? cfg.skills.filter(Boolean) : []
+    if (instructions || skills.length > 0) {
+      lines.push('', '## Assigned Agent Profile')
+      if (instructions) lines.push(instructions)
+      if (skills.length > 0) lines.push(`Relevant skills: ${skills.join(', ')}`)
+    }
+  } catch { /* agent profile instructions are optional */ }
+
   if (task.description) {
     lines.push('', task.description)
   }
@@ -800,6 +816,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
     LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
     WHERE t.status = 'assigned'
       AND t.assigned_to IS NOT NULL
+      AND (a.runtime_type IS NULL OR a.runtime_type IN ('openclaw', 'hermes', 'claude', 'codex'))
     ORDER BY
       CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END ASC,
       t.created_at ASC

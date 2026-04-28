@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMissionControl, type ModelConfig } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
@@ -438,10 +438,10 @@ export function TaskBoardPanel() {
   }, [pathname, router, searchParams])
 
   // Augment store tasks with aegisApproved flag (computed, not stored)
-  const tasks: Task[] = storeTasks.map(t => ({
+  const tasks: Task[] = useMemo(() => storeTasks.map(t => ({
     ...t,
     aegisApproved: Boolean(aegisMap[t.id])
-  }))
+  })), [storeTasks, aegisMap])
 
   // Fetch tasks, agents, and projects
   const fetchData = useCallback(async () => {
@@ -547,8 +547,8 @@ export function TaskBoardPanel() {
     }
 
     if (!loading) {
-      setError(`Task #${selectedTaskIdFromUrl} not found in current workspace`)
-      setSelectedTask(null)
+      setError(prev => prev === `Task #${selectedTaskIdFromUrl} not found in current workspace` ? prev : `Task #${selectedTaskIdFromUrl} not found in current workspace`)
+      if (selectedTask) setSelectedTask(null)
     }
   }, [loading, selectedTask, selectedTaskIdFromUrl, setSelectedTask, tasks])
 

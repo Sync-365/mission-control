@@ -177,6 +177,13 @@ export async function POST(request: NextRequest) {
       provision_openclaw_workspace,
       openclaw_workspace_path,
       runtime_type,
+      instructions,
+      skills = [],
+      task_tags = [],
+      tool_profile,
+      workspace_mode,
+      model_primary,
+      model_provider,
     } = body;
 
     const openclawId = (openclaw_id || name || 'agent')
@@ -186,6 +193,7 @@ export async function POST(request: NextRequest) {
 
     // Resolve template if specified
     let finalRole = role;
+    let finalSoulContent = soul_content || instructions || null;
     let finalConfig: Record<string, any> = { ...config };
     if (template) {
       const tpl = getTemplate(template);
@@ -197,6 +205,26 @@ export async function POST(request: NextRequest) {
     } else if (gateway_config) {
       finalConfig = { ...finalConfig, ...(gateway_config as Record<string, any>) };
     }
+
+    if (model_primary) {
+      finalConfig.model = typeof finalConfig.model === 'object' && finalConfig.model !== null
+        ? { ...finalConfig.model, primary: model_primary }
+        : { primary: model_primary };
+      finalConfig.dispatchModel = model_primary;
+    }
+    if (model_provider) finalConfig.provider = model_provider;
+    if (instructions) {
+      finalConfig.instructions = instructions;
+      finalConfig.specialization = {
+        ...((finalConfig.specialization && typeof finalConfig.specialization === 'object') ? finalConfig.specialization : {}),
+        instructions,
+      };
+    }
+    if (Array.isArray(skills) && skills.length > 0) finalConfig.skills = skills;
+    if (Array.isArray(task_tags) && task_tags.length > 0) finalConfig.taskTags = task_tags;
+    if (tool_profile) finalConfig.toolProfile = tool_profile;
+    if (workspace_mode) finalConfig.workspaceMode = workspace_mode;
+    if (runtime_type) finalConfig.runtime_type = runtime_type;
 
     if (!name || !finalRole) {
       return NextResponse.json({ error: 'Name and role are required' }, { status: 400 });
@@ -210,6 +238,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Agent name already exists' }, { status: 409 });
     }
 
+    const explicitWorkspacePath = openclaw_workspace_path ? path.resolve(openclaw_workspace_path) : null;
+    let provisionedWorkspacePath: string | null = null;
+
     if (provision_openclaw_workspace) {
       if (!appConfig.openclawStateDir) {
         return NextResponse.json(
@@ -218,8 +249,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const workspacePath = openclaw_workspace_path
-        ? path.resolve(openclaw_workspace_path)
+      const workspacePath = explicitWorkspacePath
+        ? explicitWorkspacePath
         : resolveWithin(appConfig.openclawStateDir, path.join('workspaces', openclawId));
 
       try {
@@ -227,12 +258,39 @@ export async function POST(request: NextRequest) {
           ['agents', 'add', openclawId, '--workspace', workspacePath, '--non-interactive'],
           { timeoutMs: 20000 }
         );
+        provisionedWorkspacePath = workspacePath;
+        finalConfig.workspace = workspacePath;
       } catch (provisionError: any) {
         logger.error({ err: provisionError, openclawId, workspacePath }, 'OpenClaw workspace provisioning failed');
         return NextResponse.json(
           { error: provisionError?.message || 'Failed to provision OpenClaw agent workspace' },
           { status: 502 }
         );
+      }
+    } else if (explicitWorkspacePath) {
+      finalConfig.workspace = explicitWorkspacePath;
+      finalConfig.cwd = explicitWorkspacePath;
+    }
+
+    if (provisionedWorkspacePath) {
+      try {
+        const { mkdirSync, writeFileSync } = require('node:fs');
+        mkdirSync(provisionedWorkspacePath, { recursive: true });
+        writeFileSync(
+          path.join(provisionedWorkspacePath, 'identity.md'),
+          `# ${name}\n\ntheme: ${finalRole}\nemoji: ${finalConfig.identity?.emoji || ''}\n`,
+          'utf-8'
+        );
+        if (finalSoulContent) {
+          writeFileSync(path.join(provisionedWorkspacePath, 'SOUL.md'), finalSoulContent, 'utf-8');
+          writeFileSync(
+            path.join(provisionedWorkspacePath, 'agent.md'),
+            `# ${name}\n\n## Role\n${finalRole}\n\n## Specialised Instructions\n${finalSoulContent}\n`,
+            'utf-8'
+          );
+        }
+      } catch (workspaceFileError) {
+        logger.warn({ err: workspaceFileError, openclawId, provisionedWorkspacePath }, 'Failed to write agent workspace profile files');
       }
     }
     
@@ -249,7 +307,7 @@ export async function POST(request: NextRequest) {
       name,
       finalRole,
       session_key,
-      soul_content,
+      finalSoulContent,
       status,
       now,
       now,
@@ -260,26 +318,35 @@ export async function POST(request: NextRequest) {
 
     const agentId = dbResult.lastInsertRowid as number;
 
-    // Provision Hermes profile directory if runtime_type is hermes
+    // Provision/update Hermes profile directory if runtime_type is hermes.
+    // This creates a named Hermes profile, not another Hermes agent/process.
     if (runtime_type === 'hermes') {
       try {
-        const { mkdirSync, writeFileSync, existsSync: fsExists } = require('node:fs')
-        const profileDir = path.join(appConfig.homeDir, '.hermes', 'profiles', name)
-        if (!fsExists(profileDir)) {
-          mkdirSync(profileDir, { recursive: true })
-          // Write config.yaml with model from agent config or default
-          const model = finalConfig.model || 'claude-sonnet-4-6'
-          const provider = finalConfig.provider || 'anthropic'
-          writeFileSync(
-            path.join(profileDir, 'config.yaml'),
-            `model: ${model}\nprovider: ${provider}\ntoolsets:\n- all\nmax_turns: 100\n`,
-          )
-          // Write SOUL.md if soul_content provided
-          if (soul_content) {
-            writeFileSync(path.join(profileDir, 'SOUL.md'), soul_content)
-          }
-          logger.info({ agentName: name, profileDir }, 'Provisioned Hermes profile directory')
+        const { mkdirSync, writeFileSync } = require('node:fs')
+        const profileName = openclawId || name
+        const profileDir = path.join(appConfig.homeDir, '.hermes', 'profiles', profileName)
+        mkdirSync(profileDir, { recursive: true })
+
+        const primaryModel = typeof finalConfig.model === 'string'
+          ? finalConfig.model
+          : typeof finalConfig.model?.primary === 'string'
+            ? finalConfig.model.primary
+            : 'anthropic/claude-sonnet-4-6'
+        const provider = String(finalConfig.provider || model_provider || (primaryModel.includes('/') ? primaryModel.split('/')[0] : 'anthropic'))
+        const hermesModel = primaryModel.includes('/') ? primaryModel.split('/').slice(1).join('/') : primaryModel
+
+        writeFileSync(
+          path.join(profileDir, 'config.yaml'),
+          `model: ${hermesModel}\nprovider: ${provider}\ntoolsets:\n- all\nmax_turns: 100\n`,
+          'utf-8'
+        )
+        if (finalSoulContent) {
+          writeFileSync(path.join(profileDir, 'SOUL.md'), finalSoulContent, 'utf-8')
         }
+        finalConfig.hermesProfile = profileName
+        db.prepare('UPDATE agents SET config = ?, updated_at = ? WHERE id = ? AND workspace_id = ?')
+          .run(JSON.stringify(finalConfig), now, agentId, workspaceId)
+        logger.info({ agentName: name, profileDir }, 'Provisioned Hermes profile directory')
       } catch (err) {
         logger.warn({ err, agentName: name }, 'Failed to provision Hermes profile (non-fatal)')
       }
@@ -321,12 +388,20 @@ export async function POST(request: NextRequest) {
         await writeAgentToConfig({
           id: openclawId,
           name,
+          ...(finalConfig.workspace && { workspace: finalConfig.workspace }),
+          ...(finalConfig.agentDir && { agentDir: finalConfig.agentDir }),
           ...(finalConfig.model && { model: finalConfig.model }),
           ...(finalConfig.identity && { identity: finalConfig.identity }),
           ...(finalConfig.sandbox && { sandbox: finalConfig.sandbox }),
           ...(finalConfig.tools && { tools: finalConfig.tools }),
+          ...(finalConfig.skills && { skills: finalConfig.skills }),
           ...(finalConfig.subagents && { subagents: finalConfig.subagents }),
           ...(finalConfig.memorySearch && { memorySearch: finalConfig.memorySearch }),
+          ...(finalConfig.agentRuntime && { agentRuntime: finalConfig.agentRuntime }),
+          ...(finalConfig.runtime && { runtime: finalConfig.runtime }),
+          ...(finalConfig.thinkingDefault && { thinkingDefault: finalConfig.thinkingDefault }),
+          ...(finalConfig.reasoningDefault && { reasoningDefault: finalConfig.reasoningDefault }),
+          ...(finalConfig.params && { params: finalConfig.params }),
         });
 
         const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
