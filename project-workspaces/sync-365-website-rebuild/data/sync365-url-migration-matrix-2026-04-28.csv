@@ -1,0 +1,66 @@
+current_url,content_type,current_state,decision,target_url,notes
+https://www.sync365license.com/,page,200,KEEP,https://www.sync365license.com/,Primary organic and conversion page; rebuild first in Astro
+https://www.sync365license.com/pricing/,page,200,KEEP,https://www.sync365license.com/pricing/,High-value commercial page with GSC visibility
+https://www.sync365license.com/license-billing/,page,200,KEEP,https://www.sync365license.com/license-billing/,Core money page; strong match to main offer
+https://www.sync365license.com/contact-sync/,page,200,KEEP,https://www.sync365license.com/contact-sync/,Existing product page and notable landing page
+https://www.sync365license.com/about-us/,page,200,KEEP,https://www.sync365license.com/about-us/,Visible in GSC; trust page
+https://www.sync365license.com/azure-consumption-billing/,page,200,KEEP,https://www.sync365license.com/azure-consumption-billing/,Keep as product/use-case page
+https://www.sync365license.com/simplifying-azure-consumption-billing/,page,200,KEEP,https://www.sync365license.com/simplifying-azure-consumption-billing/,Keep at launch to preserve URL equity; review later for merge
+https://www.sync365license.com/sync-contacts-for-easy-support/,page,200,KEEP,https://www.sync365license.com/sync-contacts-for-easy-support/,Relevant product/support use-case page
+https://www.sync365license.com/solving-license-billing-issues/,page,200,KEEP,https://www.sync365license.com/solving-license-billing-issues/,Use-case/education page; can support non-brand intent
+https://www.sync365license.com/halopsa-automated-azure-billing/,page,200,KEEP,https://www.sync365license.com/halopsa-automated-azure-billing/,Integration/use-case page worth preserving
+https://www.sync365license.com/connectwise/,page,200,KEEP,https://www.sync365license.com/connectwise/,Integration page
+https://www.sync365license.com/autotask/,page,200,KEEP,https://www.sync365license.com/autotask/,Integration page
+https://www.sync365license.com/integrations/,page,302->under-construction,KEEP,https://www.sync365license.com/integrations/,Rebuild as real integrations hub; preserve slug
+https://www.sync365license.com/calculators/,page,200,KEEP,https://www.sync365license.com/calculators/,Already has some GSC visibility; rebuild as real hub
+https://www.sync365license.com/product-roi-calculator/,page,200,KEEP,https://www.sync365license.com/product-roi-calculator/,Potential conversion asset; preserve slug
+https://www.sync365license.com/playbook/,page,200,KEEP,https://www.sync365license.com/playbook/,Lead magnet / resource landing page
+https://www.sync365license.com/terms/,page,200,KEEP,https://www.sync365license.com/terms/,Legal page
+https://www.sync365license.com/privacy-policy/,page,200,KEEP,https://www.sync365license.com/privacy-policy/,Legal page
+https://www.sync365license.com/cookie-policy-eu/,page,200,KEEP,https://www.sync365license.com/cookie-policy-eu/,Legal page
+https://www.sync365license.com/enduserportal/,page,200,KEEP,https://www.sync365license.com/enduserportal/,Preserve and rebuild as a marketing page in the new site
+https://www.sync365license.com/contact-2/,page,200,REDIRECT,https://www.sync365license.com/contact-sync/,Duplicate/legacy contact slug; consolidate to single canonical contact route
+https://www.sync365license.com/origin-story/,page,200,REDIRECT,https://www.sync365license.com/about-us/,Fold into About/Why Sync 365 trust section
+https://www.sync365license.com/why-us/,page,200,REDIRECT,https://www.sync365license.com/about-us/,Consolidate trust/brand messaging
+https://www.sync365license.com/under-construction/,page,200,REDIRECT,https://www.sync365license.com/,Placeholder page should not survive rebuild
+https://www.sync365license.com/more-2/,page,302->under-construction,REDIRECT,https://www.sync365license.com/resources/,Replace with real resources hub or remove from nav
+https://www.sync365license.com/use-cases-2024/,page,200,REDIRECT,https://www.sync365license.com/solving-license-billing-issues/,Dated slug; consolidate into evergreen use-case content
+https://www.sync365license.com/atplaybook/,page,200,REDIRECT,https://www.sync365license.com/playbook/,Likely duplicate playbook asset
+https://www.sync365license.com/schedule-a-demo-with-our-brisbane-based-staff-member/,page,200,REDIRECT,https://www.sync365license.com/contact-sync/,Unwieldy campaign slug; point to primary demo/contact path
+https://www.sync365license.com/eventlanding/,page,302->external,REDIRECT,TBD,Legacy unused campaign route; retire in rebuild and choose final redirect target during redirect implementation
+https://www.sync365license.com/sync-365-landing/,page,200,NOINDEX,https://www.sync365license.com/sync-365-landing/,Campaign landing page; keep out of index unless intentionally targeted
+https://www.sync365license.com/playbook-download/,page,200,NOINDEX,https://www.sync365license.com/playbook-download/,Download/thank-you style page should not compete in search
+https://www.sync365license.com/webinars/,page,200,NOINDEX,https://www.sync365license.com/webinars/,Keep only if content exists; otherwise hold out of index
+https://www.sync365license.com/ultimate-guides/,page,200,NOINDEX,https://www.sync365license.com/ultimate-guides/,Scaffold hub; noindex until populated
+https://www.sync365license.com/symptoms-identification-list/,page,200,NOINDEX,https://www.sync365license.com/symptoms-identification-list/,Scaffold page; noindex until useful
+https://www.sync365license.com/templates/,page,200,NOINDEX,https://www.sync365license.com/templates/,Scaffold page; noindex until useful
+https://www.sync365license.com/quizzes/,page,200,NOINDEX,https://www.sync365license.com/quizzes/,Scaffold page; noindex until useful
+https://www.sync365license.com/scorecards/,page,200,NOINDEX,https://www.sync365license.com/scorecards/,Scaffold page; noindex until useful
+https://www.sync365license.com/product-comparison-calculators/,page,200,NOINDEX,https://www.sync365license.com/product-comparison-calculators/,Too thin unless fully built
+https://www.sync365license.com/solution-comparison-calculators/,page,200,NOINDEX,https://www.sync365license.com/solution-comparison-calculators/,Too thin unless fully built
+https://www.sync365license.com/problem-unaware-visitor/,page,302->under-construction,REDIRECT,https://www.sync365license.com/resources/,Internal framework label; replace with proper resource architecture
+https://www.sync365license.com/problem-aware-visitor/,page,302->under-construction,REDIRECT,https://www.sync365license.com/resources/,Internal framework label; replace with proper resource architecture
+https://www.sync365license.com/solution-aware-visitor/,page,302->under-construction,REDIRECT,https://www.sync365license.com/resources/,Internal framework label; replace with proper resource architecture
+https://www.sync365license.com/resources/,legacy-page,historical,KEEP,https://www.sync365license.com/resources/,Create real resources hub in Astro even though not currently published
+https://www.sync365license.com/the-finance-ninja/,legacy-page,historical,REDIRECT,https://www.sync365license.com/resources/,Retire internal-persona slug; map to public-facing content
+https://www.sync365license.com/the-smooth-operator-ops-manager/,legacy-page,historical,REDIRECT,https://www.sync365license.com/resources/,Retire internal-persona slug; map to public-facing content
+https://www.sync365license.com/chief-creator-owner-founder/,legacy-page,historical,REDIRECT,https://www.sync365license.com/resources/,Retire internal-persona slug; map to public-facing content
+https://www.sync365license.com/microsoft-nce-billing-commitment-models-msps/,post,200,KEEP,https://www.sync365license.com/microsoft-nce-billing-commitment-models-msps/,Current visible post in GA/GSC
+https://www.sync365license.com/manual-license-reconciliation-costs-msps-thousands/,post,200,KEEP,https://www.sync365license.com/manual-license-reconciliation-costs-msps-thousands/,Relevant commercial/SEO post
+https://www.sync365license.com/custom-license-billing-is-here/,post,200,KEEP,https://www.sync365license.com/custom-license-billing-is-here/,Preserve historical URL at launch
+https://www.sync365license.com/performance-enhancements/,post,200,KEEP,https://www.sync365license.com/performance-enhancements/,Preserve historical URL at launch
+https://www.sync365license.com/subscription-id-billing/,post,200,KEEP,https://www.sync365license.com/subscription-id-billing/,Preserve historical URL at launch
+https://www.sync365license.com/azure-reserved-instance-billing-and-multiple-csv-mappings/,post,200,KEEP,https://www.sync365license.com/azure-reserved-instance-billing-and-multiple-csv-mappings/,Preserve historical URL at launch
+https://www.sync365license.com/september-feature-releases/,post,200,KEEP,https://www.sync365license.com/september-feature-releases/,Preserve historical URL at launch
+https://www.sync365license.com/minimum-license-quantity/,post,200,KEEP,https://www.sync365license.com/minimum-license-quantity/,Preserve historical URL at launch
+https://www.sync365license.com/azure-billing-bill-in-advance/,post,200,KEEP,https://www.sync365license.com/azure-billing-bill-in-advance/,Preserve historical URL at launch
+https://www.sync365license.com/introducing-multi-currency-billing/,post,200,KEEP,https://www.sync365license.com/introducing-multi-currency-billing/,Preserve historical URL at launch
+https://www.sync365license.com/sync-365-license-goes-live/,post,200,KEEP,https://www.sync365license.com/sync-365-license-goes-live/,Preserve historical URL at launch
+https://www.sync365license.com/beta-testing/,post,200,KEEP,https://www.sync365license.com/beta-testing/,Preserve historical URL at launch
+https://www.sync365license.com/?page_id=6124,legacy-query,linked in nav,REDIRECT,https://www.sync365license.com/resources/,Remove page_id links from templates and redirect to real public route
+https://www.sync365license.com/?page_id=6129,legacy-query,linked in nav,REDIRECT,https://www.sync365license.com/resources/,Remove page_id links from templates and redirect to real public route
+https://www.sync365license.com/?page_id=6134,legacy-query,linked in nav,REDIRECT,https://www.sync365license.com/resources/,Remove page_id links from templates and redirect to real public route
+https://www.sync365license.com/?page_id=6159,legacy-query,linked in nav,REDIRECT,https://www.sync365license.com/resources/,Remove page_id links from templates and redirect to real resources hub
+https://www.sync365license.com/index.php?rp=/store/sync-365-license,legacy-app-route,legacy/unused,REDIRECT,TBD,Legacy unused route; do not rebuild in Astro. Pick final redirect target during redirect implementation
+https://www.sync365license.com/index.php?rp=/login,legacy-app-route,legacy/unused,REDIRECT,TBD,Legacy unused route; do not rebuild in Astro. Pick final redirect target during redirect implementation
+https://account.sync365license.com/login.php,app-route,active external login,KEEP,https://account.sync365license.com/login.php,Protected route — WHMCS login remains active and should stay reachable from site navigation without rebuild changes
