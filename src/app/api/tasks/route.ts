@@ -187,6 +187,9 @@ export async function POST(request: NextRequest) {
       metadata = {}
     } = body;
     const normalizedStatus = normalizeTaskCreateStatus(status, assigned_to)
+    if (normalizedStatus === 'in_progress' && !(assigned_to && assigned_to.trim())) {
+      return NextResponse.json({ error: 'Tasks cannot be created in progress without an assigned agent.' }, { status: 400 })
+    }
 
     // Resolve project_id for the task
     const resolvedProjectId = resolveProjectId(db, workspaceId, project_id)

@@ -135,14 +135,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Atomic claim: single UPDATE with subquery to eliminate SELECT-UPDATE race condition.
+    // Polling agents should only claim work explicitly assigned to them. Unassigned
+    // inbox tasks are routed by the scheduler first so users can see assignment
+    // decisions instead of tasks jumping straight from inbox → in_progress.
     const claimed = db.prepare(`
       UPDATE tasks
       SET status = 'in_progress', assigned_to = ?, updated_at = ?
       WHERE id = (
         SELECT id FROM tasks
         WHERE workspace_id = ?
-          AND status IN ('assigned', 'inbox')
-          AND (assigned_to IS NULL OR assigned_to = ?)
+          AND status = 'assigned'
+          AND assigned_to = ?
         ORDER BY ${priorityRankSql()} ASC, due_date ASC NULLS LAST, created_at ASC
         LIMIT 1
       )

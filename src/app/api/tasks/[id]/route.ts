@@ -143,6 +143,10 @@ export async function PUT(
       assignedTo: assigned_to,
       assignedToProvided: assigned_to !== undefined,
     })
+    const effectiveAssignedTo = assigned_to !== undefined ? assigned_to : currentTask.assigned_to
+    if (normalizedStatus === 'in_progress' && !(effectiveAssignedTo && String(effectiveAssignedTo).trim())) {
+      return NextResponse.json({ error: 'Tasks cannot be moved in progress without an assigned agent.' }, { status: 400 })
+    }
     
     const now = Math.floor(Date.now() / 1000);
     const descriptionMentionResolution = description !== undefined
