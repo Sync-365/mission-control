@@ -340,10 +340,19 @@ export async function POST(request: NextRequest) {
     // This creates a named Hermes profile, not another Hermes agent/process.
     if (runtime_type === 'hermes') {
       try {
-        const { mkdirSync, writeFileSync } = require('node:fs')
+        const { copyFileSync, existsSync, mkdirSync, writeFileSync } = require('node:fs')
         const profileName = hermesProfileName || openclawId || name
         const profileDir = hermesProfileDir || path.join(appConfig.homeDir, '.hermes', 'profiles', profileName)
         mkdirSync(profileDir, { recursive: true })
+
+        // Hermes profiles are isolated, so a newly-created runtime profile will
+        // not see the root Hermes OAuth store by default. Seed the profile auth
+        // from root Hermes when available so headless task dispatch can start.
+        const rootAuth = path.join(appConfig.homeDir, '.hermes', 'auth.json')
+        const profileAuth = path.join(profileDir, 'auth.json')
+        if (!existsSync(profileAuth) && existsSync(rootAuth)) {
+          copyFileSync(rootAuth, profileAuth)
+        }
 
         const primaryModel = typeof finalConfig.model === 'string'
           ? finalConfig.model

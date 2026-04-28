@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { mkdirSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 import { config } from '@/lib/config'
 import { runCommand, runOpenClaw } from '@/lib/command'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
@@ -268,6 +268,27 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
     : typeof cfg.runtime?.profile === 'string' && cfg.runtime.profile
       ? cfg.runtime.profile
       : null
+  const hermesProfileDir = typeof cfg.hermesProfileDir === 'string' && cfg.hermesProfileDir
+    ? cfg.hermesProfileDir
+    : typeof cfg.runtime?.profileDir === 'string' && cfg.runtime.profileDir
+      ? cfg.runtime.profileDir
+      : hermesProfile
+        ? join(config.homeDir, '.hermes', 'profiles', hermesProfile)
+        : null
+
+  // Hermes profiles are isolated. If the root Hermes profile is authenticated
+  // but the MC-managed runtime profile is not, one-shot task dispatch fails
+  // before the agent starts. Copy the root OAuth store into the profile when
+  // no profile auth file exists yet; do not overwrite profile-specific auth.
+  if (hermesProfileDir) {
+    const rootAuth = join(config.homeDir, '.hermes', 'auth.json')
+    const profileAuth = join(hermesProfileDir, 'auth.json')
+    if (!existsSync(profileAuth) && existsSync(rootAuth)) {
+      mkdirSync(hermesProfileDir, { recursive: true })
+      copyFileSync(rootAuth, profileAuth)
+    }
+  }
+
   if (hermesProfile) args.unshift('--profile', hermesProfile)
   if (dispatchModel) args.push('--model', dispatchModel)
   if (typeof cfg.provider === 'string' && cfg.provider) args.push('--provider', cfg.provider)
