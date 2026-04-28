@@ -162,7 +162,19 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
       `Shared project directory: ${projectWorkdir}`,
     )
     if (task.project_description?.trim()) lines.push('', 'Project goal / brief:', task.project_description.trim())
-    if (task.project_github_repo) lines.push(`GitHub repo: ${task.project_github_repo}`)
+    if (task.project_github_repo) {
+      lines.push(
+        `GitHub repo: ${task.project_github_repo}`,
+        '',
+        '## Git / Pull Request Workflow',
+        'If this task changes repository files, do the work on a task branch and open a pull request. Do not commit directly to main.',
+        `Preferred branch pattern: feat/${(task.ticket_prefix || 'task').toLowerCase()}-${task.project_ticket_no || task.id}-<short-slug>`,
+        'Use the local repo in the shared project directory if present. If it is not present, clone the GitHub repo into the shared project directory before editing.',
+        'Before editing: check git status and current branch. After editing: run the smallest meaningful verification, commit focused changes, push the branch, and open a PR against the project default branch.',
+        `Mission Control can track branches/PRs for this task via POST /api/tasks/${task.id}/branch and POST /api/tasks/${task.id}/branch with {"action":"create-pr"} when API credentials are available.`,
+        'Final response must include changed files, verification run, branch name, and PR URL/number. If a PR cannot be created, explain the exact blocker and leave the branch/patch ready.'
+      )
+    }
     try {
       const meta = task.metadata ? JSON.parse(task.metadata) : {}
       const sourcePlan = typeof meta.source_plan_path === 'string' ? meta.source_plan_path : ''
