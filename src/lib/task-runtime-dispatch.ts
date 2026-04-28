@@ -5,6 +5,7 @@ import { runCommand, runOpenClaw } from '@/lib/command'
 import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { parseGatewayHistoryTranscript } from '@/lib/transcript-parser'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
 export type SupportedTaskRuntime = 'openclaw' | 'hermes' | 'claude' | 'codex'
 
@@ -298,6 +299,7 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
 
   const result = await runCommand('hermes', args, {
     cwd: resolveTaskWorkingDir(task),
+    env: await getRuntimeEnv(),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 
@@ -322,6 +324,7 @@ async function dispatchClaude(task: RuntimeDispatchTask, prompt: string): Promis
 
   const result = await runCommand('claude', args, {
     cwd: resolveTaskWorkingDir(task),
+    env: await getRuntimeEnv(),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 
@@ -348,6 +351,7 @@ async function dispatchCodex(task: RuntimeDispatchTask, prompt: string): Promise
 
   const result = await runCommand('codex', args, {
     cwd: resolveTaskWorkingDir(task),
+    env: await getRuntimeEnv(),
     timeoutMs: Number(cfg.timeoutMs || 180000),
   })
 

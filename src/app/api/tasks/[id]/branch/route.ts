@@ -36,7 +36,7 @@ export async function GET(
     }
 
     const task = db.prepare(`
-      SELECT t.*, p.github_repo, p.github_default_branch, p.ticket_prefix
+      SELECT t.*, p.github_repo AS project_github_repo, p.github_default_branch, p.ticket_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
@@ -50,12 +50,12 @@ export async function GET(
       branch: task.github_branch || null,
       pr_number: task.github_pr_number || null,
       pr_state: task.github_pr_state || null,
-      repo: task.github_repo || null,
+      repo: task.github_repo || task.project_github_repo || null,
     }
 
     // If task has a branch but no PR info, check GitHub (fire-and-forget)
-    if (task.github_branch && !task.github_pr_number && task.github_repo) {
-      const repo = task.github_repo as string
+    if (task.github_branch && !task.github_pr_number && (task.github_repo || task.project_github_repo)) {
+      const repo = (task.github_repo || task.project_github_repo) as string
       const branch = task.github_branch as string
       fetchPullRequests(repo, { head: branch, state: 'all' })
         .then((prs) => {
@@ -106,7 +106,7 @@ export async function POST(
     }
 
     const task = db.prepare(`
-      SELECT t.*, p.github_repo, p.github_default_branch, p.ticket_prefix
+      SELECT t.*, p.github_repo AS project_github_repo, p.github_default_branch, p.ticket_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
@@ -116,14 +116,13 @@ export async function POST(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    if (!task.github_repo) {
+    const repo = (task.github_repo || task.project_github_repo) as string | null
+    if (!repo) {
       return NextResponse.json(
         { error: 'Task project does not have a GitHub repo configured' },
         { status: 400 }
       )
     }
-
-    const repo = task.github_repo as string
     const defaultBranch = (task.github_default_branch as string) || 'main'
 
     let body: Record<string, unknown> = {}
