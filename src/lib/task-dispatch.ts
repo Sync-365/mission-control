@@ -142,6 +142,27 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
     `).all(task.id, task.workspace_id) as Array<{ author: string; content: string }>
     const ordered = comments.reverse().filter((comment) => comment.content?.trim())
     if (ordered.length > 0) {
+      const latestAgentCommentIndex = (() => {
+        for (let i = ordered.length - 1; i >= 0; i -= 1) {
+          if (ordered[i].author === task.agent_name || ordered[i].author === task.assigned_to) return i
+        }
+        return -1
+      })()
+      const latestOwnerReplies = ordered
+        .slice(latestAgentCommentIndex + 1)
+        .filter((comment) => !['aegis', 'scheduler'].includes(comment.author.toLowerCase()) && comment.author !== task.agent_name && comment.author !== task.assigned_to)
+
+      if (latestOwnerReplies.length > 0) {
+        lines.push(
+          '',
+          '## Latest Owner Replies — Must Address',
+          'The following comments were added after the last agent response. Treat them as the newest source of truth and explicitly incorporate/answer them before completing the task.'
+        )
+        for (const comment of latestOwnerReplies) {
+          lines.push(`- ${comment.author}: ${comment.content.trim().slice(0, 1600)}`)
+        }
+      }
+
       lines.push('', '## Task Comments / Follow-up Context')
       for (const comment of ordered) {
         lines.push(`- ${comment.author}: ${comment.content.trim().slice(0, 1200)}`)
