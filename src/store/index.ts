@@ -342,6 +342,8 @@ export interface Project {
   github_sync_enabled?: boolean
   github_labels_initialized?: boolean
   github_default_branch?: string
+  project_workdir?: string
+  project_env?: Record<string, string>
 }
 
 export interface ConnectionStatus {

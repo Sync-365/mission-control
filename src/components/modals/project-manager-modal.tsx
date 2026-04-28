@@ -17,7 +17,6 @@ interface Project {
   github_sync_enabled?: boolean
   github_default_branch?: string
   project_workdir?: string
-  project_env?: Record<string, string>
   task_count?: number
   assigned_agents?: string[]
 }
@@ -39,29 +38,6 @@ const COLOR_PALETTE = [
   '#06b6d4', // cyan
   '#f97316', // orange
 ]
-
-function envObjectToText(env: Record<string, string> | undefined): string {
-  if (!env) return ''
-  return Object.entries(env)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join('\n')
-}
-
-function parseEnvText(raw: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-    const eqIdx = trimmed.indexOf('=')
-    if (eqIdx <= 0) continue
-    const key = trimmed.slice(0, eqIdx).trim().toUpperCase()
-    const value = trimmed.slice(eqIdx + 1).trim()
-    if (!/^[A-Z_][A-Z0-9_]*$/.test(key) || !value) continue
-    env[key] = value
-  }
-  return env
-}
 
 export function ProjectManagerModal({
   onClose,
@@ -88,8 +64,7 @@ export function ProjectManagerModal({
     github_sync_enabled: boolean
     github_default_branch: string
     project_workdir: string
-    project_env_text: string
-  }>({ name: '', slug: '', ticket_prefix: '', description: '', github_repo: '', deadline: '', color: '', assigned_agents: [], github_sync_enabled: false, github_default_branch: 'main', project_workdir: '', project_env_text: '' })
+  }>({ name: '', slug: '', ticket_prefix: '', description: '', github_repo: '', deadline: '', color: '', assigned_agents: [], github_sync_enabled: false, github_default_branch: 'main', project_workdir: '' })
 
   const load = useCallback(async () => {
     try {
@@ -188,7 +163,6 @@ export function ProjectManagerModal({
       github_sync_enabled: !!project.github_sync_enabled,
       github_default_branch: project.github_default_branch || 'main',
       project_workdir: project.project_workdir || '',
-      project_env_text: envObjectToText(project.project_env),
     })
   }
 
@@ -205,7 +179,6 @@ export function ProjectManagerModal({
         github_sync_enabled: editForm.github_sync_enabled ? 1 : 0,
         github_default_branch: editForm.github_default_branch || 'main',
         project_workdir: editForm.project_workdir,
-        project_env: parseEnvText(editForm.project_env_text),
       }
       const response = await fetch(`/api/projects/${project.id}`, {
         method: 'PATCH',
@@ -460,21 +433,6 @@ export function ProjectManagerModal({
                         />
                         <p className="text-[11px] text-muted-foreground mt-1">
                           Agents assigned to this project should use this shared directory for plans, audits, and repo work.
-                        </p>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs text-muted-foreground mb-1">Project Environment</label>
-                        <textarea
-                          value={editForm.project_env_text}
-                          onChange={(e) => setEditForm(prev => ({ ...prev, project_env_text: e.target.value }))}
-                          rows={6}
-                          className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-xs font-mono resize-y"
-                          placeholder={'SYNC365_WP_SITE_URL=https://www.sync365license.com\nSYNC365_WP_REST_ENV_PATH=/path/to/wordpress.env\nSYNC365_WPCLI_SSH_KEY_PATH=/path/to/key'}
-                          data-1p-ignore
-                        />
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          KEY=value entries passed only to agents working on this project. Prefer references to secret files over raw passwords; task prompts show key names, not values.
                         </p>
                       </div>
 
