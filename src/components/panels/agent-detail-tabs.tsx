@@ -900,6 +900,14 @@ const DEFAULT_MODEL_BY_TIER: Record<'opus' | 'sonnet' | 'haiku', string> = {
 type CreateAgentRuntime = 'profile' | 'openclaw' | 'hermes' | 'claude' | 'codex' | 'custom'
 type WorkspaceMode = 'none' | 'default' | 'dedicated' | 'existing' | 'runtime'
 type ToolProfile = 'template' | 'readonly' | 'coding' | 'orchestrator' | 'research' | 'custom'
+type ThinkingLevel = '' | 'low' | 'medium' | 'high'
+
+const THINKING_OPTIONS: Array<{ value: ThinkingLevel; label: string; description: string }> = [
+  { value: '', label: 'Default / inherit', description: 'Use runtime or model default' },
+  { value: 'low', label: 'Low', description: 'Faster, lighter reasoning' },
+  { value: 'medium', label: 'Medium', description: 'Balanced reasoning' },
+  { value: 'high', label: 'High', description: 'Deeper reasoning for hard tasks' },
+]
 
 type RuntimeOption = {
   id: CreateAgentRuntime
@@ -982,6 +990,7 @@ export function CreateAgentModal({
     modelTier: 'sonnet' as 'opus' | 'sonnet' | 'haiku',
     modelPrimary: DEFAULT_MODEL_BY_TIER.sonnet,
     provider: 'anthropic',
+    thinking: '' as ThinkingLevel,
     workspaceMode: 'dedicated' as WorkspaceMode,
     existingWorkspacePath: '',
     workspaceAccess: 'rw' as 'rw' | 'ro' | 'none',
@@ -1176,6 +1185,7 @@ export function CreateAgentModal({
         },
         dispatchModel: primaryModel,
         provider: formData.provider || (primaryModel.includes('/') ? primaryModel.split('/')[0] : undefined),
+        ...(formData.thinking ? { thinking: formData.thinking, thinkingDefault: formData.thinking } : {}),
       }
 
       if (formData.runtime === 'openclaw') {
@@ -1228,6 +1238,8 @@ export function CreateAgentModal({
               toolProfile: formData.toolProfile,
               workspaceMode: formData.workspaceMode,
               provider: formData.provider,
+              thinking: formData.thinking || undefined,
+              thinkingDefault: formData.thinking || undefined,
             },
           }),
         }),
@@ -1421,7 +1433,7 @@ export function CreateAgentModal({
                 {selectedTemplateData && <p className="text-[11px] text-muted-foreground/70 mt-1">Editing {selectedTemplateData.label}. Use “Save as template default” to keep these defaults in this browser.</p>}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm text-muted-foreground mb-1">Skills allowlist</label>
                   <select
@@ -1446,6 +1458,17 @@ export function CreateAgentModal({
                   <input type="text" value={formData.taskTagsText} onChange={(e) => setFormData(prev => ({ ...prev, taskTagsText: e.target.value }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50" placeholder="frontend, astro, ui" />
                   <p className="text-[11px] text-muted-foreground/70 mt-1">Used for routing/planning metadata.</p>
                 </div>
+                <div>
+                  <label className="block text-sm text-muted-foreground mb-1">Tool profile</label>
+                  <select value={formData.toolProfile} onChange={(e) => setFormData(prev => ({ ...prev, toolProfile: e.target.value as ToolProfile }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    <option value="template">Template default</option>
+                    <option value="readonly">Readonly/review</option>
+                    <option value="coding">Coding</option>
+                    <option value="orchestrator">Orchestrator</option>
+                    <option value="research">Research</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-4">
@@ -1468,15 +1491,11 @@ export function CreateAgentModal({
                   <input type="text" value={formData.modelPrimary} onChange={(e) => setFormData(prev => ({ ...prev, modelPrimary: e.target.value, provider: e.target.value.includes('/') ? e.target.value.split('/')[0] : prev.provider }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm text-muted-foreground mb-1">Tool profile</label>
-                  <select value={formData.toolProfile} onChange={(e) => setFormData(prev => ({ ...prev, toolProfile: e.target.value as ToolProfile }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
-                    <option value="template">Template default</option>
-                    <option value="readonly">Readonly/review</option>
-                    <option value="coding">Coding</option>
-                    <option value="orchestrator">Orchestrator</option>
-                    <option value="research">Research</option>
-                    <option value="custom">Custom</option>
+                  <label className="block text-sm text-muted-foreground mb-1">Thinking</label>
+                  <select value={formData.thinking} onChange={(e) => setFormData(prev => ({ ...prev, thinking: e.target.value as ThinkingLevel }))} className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50">
+                    {THINKING_OPTIONS.map(option => <option key={option.value || 'default'} value={option.value}>{option.label}</option>)}
                   </select>
+                  <p className="text-[11px] text-muted-foreground/70 mt-1">For reasoning/thinking-capable models.</p>
                 </div>
               </div>
 
@@ -1582,6 +1601,7 @@ export function CreateAgentModal({
                       <div><span className="text-muted-foreground">Backend:</span> <span className="text-foreground">{selectedRuntime.label}</span></div>
                       <div><span className="text-muted-foreground">ID:</span> <span className="text-foreground font-mono">{formData.id}</span></div>
                       <div><span className="text-muted-foreground">Model:</span> <span className="text-foreground font-mono">{formData.modelPrimary}</span></div>
+                      <div><span className="text-muted-foreground">Thinking:</span> <span className="text-foreground">{formData.thinking || 'default/inherit'}</span></div>
                       <div><span className="text-muted-foreground">Workspace:</span> <span className="text-foreground">{formData.workspaceMode}</span></div>
                       <div><span className="text-muted-foreground">Skills:</span> <span className="text-foreground">{parsedSkills.length ? parsedSkills.join(', ') : 'inherit/default'}</span></div>
                       <div><span className="text-muted-foreground">Tags:</span> <span className="text-foreground">{parsedTaskTags.length ? parsedTaskTags.join(', ') : 'none'}</span></div>
@@ -1869,6 +1889,7 @@ export function ConfigTab({
       .map((name: string) => ({ name, source: 'configured' })),
   ]
   const runtimeType = config.runtime_type || config.runtime?.type || (agent as any).runtime_type || 'openclaw'
+  const thinkingValue = String(config.thinking || config.thinkingDefault || '') as ThinkingLevel
   const runtimeProfile = config.hermesProfile || config.runtime?.profile || config.openclawId || ''
   const runtimeWorkspace = config.hermesProfileDir || config.runtime?.profileDir || config.workspace || config.cwd || ''
 
@@ -1934,6 +1955,33 @@ export function ConfigTab({
               <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground font-mono">{runtimeType}</span></div>
               <div><span className="text-muted-foreground">Profile:</span> <span className="text-foreground font-mono">{runtimeProfile || t('notConfigured')}</span></div>
               <div className="min-w-0"><span className="text-muted-foreground">Workspace:</span> <span className="text-foreground font-mono break-words">{runtimeWorkspace || t('notConfigured')}</span></div>
+            </div>
+            <div className="mt-3">
+              <label className="block text-xs text-muted-foreground mb-1">Thinking</label>
+              {editing ? (
+                <select
+                  value={thinkingValue}
+                  onChange={(e) => {
+                    const value = e.target.value as ThinkingLevel
+                    setConfig((prev: any) => {
+                      const next = { ...prev }
+                      if (value) {
+                        next.thinking = value
+                        next.thinkingDefault = value
+                      } else {
+                        delete next.thinking
+                        delete next.thinkingDefault
+                      }
+                      return next
+                    })
+                  }}
+                  className="w-full max-w-xs bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 text-sm"
+                >
+                  {THINKING_OPTIONS.map(option => <option key={option.value || 'default'} value={option.value}>{option.label}</option>)}
+                </select>
+              ) : (
+                <span className="text-foreground text-sm">{thinkingValue || 'default/inherit'}</span>
+              )}
             </div>
           </div>
 

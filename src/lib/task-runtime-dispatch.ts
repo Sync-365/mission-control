@@ -179,6 +179,8 @@ function resolveTaskThinking(task: RuntimeDispatchTask): string | null {
   const meta = safeJsonParse<Record<string, unknown>>(task.metadata, {})
   if (typeof meta.thinking === 'string' && meta.thinking) return meta.thinking
   if (typeof cfg.thinking === 'string' && cfg.thinking) return cfg.thinking
+  if (typeof cfg.thinkingDefault === 'string' && cfg.thinkingDefault) return cfg.thinkingDefault
+  if (typeof cfg.reasoningDefault === 'string' && cfg.reasoningDefault) return cfg.reasoningDefault
   return null
 }
 

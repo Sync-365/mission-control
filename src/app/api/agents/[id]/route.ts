@@ -101,6 +101,9 @@ export async function PUT(
       if (source.skills) writeBack.skills = source.skills
       if (source.subagents) writeBack.subagents = source.subagents
       if (source.memorySearch) writeBack.memorySearch = source.memorySearch
+      if (source.thinkingDefault) writeBack.thinkingDefault = source.thinkingDefault
+      if (source.reasoningDefault) writeBack.reasoningDefault = source.reasoningDefault
+      if (source.thinking && !writeBack.thinkingDefault) writeBack.thinkingDefault = source.thinking
       return writeBack
     }
 
