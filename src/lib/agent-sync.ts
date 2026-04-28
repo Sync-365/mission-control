@@ -476,9 +476,23 @@ function normalizeModelConfig(model: unknown): unknown {
 
 function normalizeAgentConfigForOpenClaw(agentConfig: any): any {
   if (!agentConfig || typeof agentConfig !== 'object') return agentConfig
-  if (!('model' in agentConfig)) return agentConfig
-  return {
-    ...agentConfig,
-    model: normalizeModelConfig(agentConfig.model),
+  const normalized: any = { ...agentConfig }
+
+  if ('model' in normalized) {
+    normalized.model = normalizeModelConfig(normalized.model)
   }
+
+  // These fields are useful in Mission Control's DB/UI but are not valid
+  // OpenClaw agent config keys. Leaving them in write-back makes Gateway reject
+  // the whole config and restore last-known-good.
+  if (normalized.identity && typeof normalized.identity === 'object' && !Array.isArray(normalized.identity)) {
+    normalized.identity = { ...normalized.identity }
+    delete normalized.identity.content
+  }
+  if (normalized.tools && typeof normalized.tools === 'object' && !Array.isArray(normalized.tools)) {
+    normalized.tools = { ...normalized.tools }
+    delete normalized.tools.raw
+  }
+
+  return normalized
 }
