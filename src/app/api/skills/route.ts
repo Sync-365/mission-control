@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
-import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { requireRole } from '@/lib/auth'
 import { resolveWithin } from '@/lib/paths'
 import { checkSkillSecurity } from '@/lib/skill-registry'
@@ -19,6 +21,8 @@ interface SkillSummary {
 }
 
 type SkillRoot = { source: string; path: string }
+
+const execFileAsync = promisify(execFile)
 
 function resolveSkillRoot(
   envName: string,
@@ -160,6 +164,86 @@ async function upsertSkill(root: SkillRoot, name: string, content: string) {
   } catch { /* DB not ready yet — sync will catch it */ }
 
   return { skillPath, skillDocPath }
+}
+
+async function extractSkillZip(root: SkillRoot, file: File) {
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    throw new Error('Upload must be a .zip file')
+  }
+  if (file.size > 50 * 1024 * 1024) {
+    throw new Error('Zip file is too large (max 50 MB)')
+  }
+
+  await mkdir(root.path, { recursive: true })
+  const tmpDir = await mkdtemp(join(tmpdir(), 'mc-skills-zip-'))
+  const zipPath = join(tmpDir, 'upload.zip')
+  try {
+    await writeFile(zipPath, Buffer.from(await file.arrayBuffer()))
+    const script = String.raw`
+import json, os, stat, sys, zipfile
+zip_path, dest = sys.argv[1], sys.argv[2]
+max_files = 500
+max_total = 50 * 1024 * 1024
+with zipfile.ZipFile(zip_path) as zf:
+    infos = [i for i in zf.infolist() if not i.filename.endswith('/')]
+    if len(infos) > max_files:
+        raise SystemExit(f'Too many files in zip (max {max_files})')
+    total = 0
+    extracted = []
+    for info in infos:
+        name = info.filename.replace('\\', '/')
+        parts = [p for p in name.split('/') if p and p != '.']
+        if not parts or name.startswith('/') or any(p == '..' for p in parts):
+            raise SystemExit(f'Unsafe zip path: {info.filename}')
+        if parts[0] == '__MACOSX' or parts[-1] == '.DS_Store':
+            continue
+        mode = (info.external_attr >> 16) & 0o170000
+        if mode == stat.S_IFLNK:
+            raise SystemExit(f'Symlinks are not allowed in skill zips: {info.filename}')
+        total += info.file_size
+        if total > max_total:
+            raise SystemExit(f'Uncompressed zip contents too large (max {max_total} bytes)')
+        target = os.path.abspath(os.path.join(dest, *parts))
+        dest_abs = os.path.abspath(dest)
+        if target != dest_abs and not target.startswith(dest_abs + os.sep):
+            raise SystemExit(f'Unsafe extraction target: {info.filename}')
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zf.open(info) as src, open(target, 'wb') as out:
+            out.write(src.read())
+        extracted.append('/'.join(parts))
+print(json.dumps({'extracted': extracted, 'count': len(extracted)}))
+`
+    const { stdout } = await execFileAsync('python3', ['-c', script, zipPath, root.path], { timeout: 30000, maxBuffer: 1024 * 1024 })
+    return JSON.parse(stdout || '{}') as { extracted?: string[]; count?: number }
+  } finally {
+    await unlink(zipPath).catch(() => {})
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+async function syncSkillRootToDB(root: SkillRoot) {
+  try {
+    const { getDatabase } = await import('@/lib/db')
+    const db = getDatabase()
+    const skills = await collectSkillsFromDir(root.path, root.source)
+    const now = new Date().toISOString()
+    for (const skill of skills) {
+      const content = await readFile(join(skill.path, 'SKILL.md'), 'utf8')
+      const hash = createHash('sha256').update(content, 'utf8').digest('hex')
+      db.prepare(`
+        INSERT INTO skills (name, source, path, description, content_hash, installed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, name) DO UPDATE SET
+          path = excluded.path,
+          description = excluded.description,
+          content_hash = excluded.content_hash,
+          updated_at = excluded.updated_at
+      `).run(skill.name, skill.source, skill.path, skill.description || null, hash, now, now)
+    }
+    return skills.length
+  } catch {
+    return null
+  }
 }
 
 async function deleteSkill(root: SkillRoot, name: string) {
@@ -322,6 +406,23 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const roots = getSkillRoots()
+  const contentType = request.headers.get('content-type') || ''
+  if (contentType.includes('multipart/form-data')) {
+    const form = await request.formData()
+    const root = getRootBySource(roots, String(form.get('source') || ''))
+    const file = form.get('file')
+    if (!root || !(file instanceof File)) {
+      return NextResponse.json({ error: 'Valid source and zip file are required' }, { status: 400 })
+    }
+    try {
+      const result = await extractSkillZip(root, file)
+      const syncedSkills = await syncSkillRootToDB(root)
+      return NextResponse.json({ ok: true, source: root.source, path: root.path, syncedSkills, ...result })
+    } catch (err: any) {
+      return NextResponse.json({ error: err?.message || 'Failed to extract zip' }, { status: 400 })
+    }
+  }
+
   const body = await request.json().catch(() => ({}))
   const root = getRootBySource(roots, body?.source)
   const name = normalizeSkillName(String(body?.name || ''))

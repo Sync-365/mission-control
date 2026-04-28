@@ -82,6 +82,11 @@ export function SkillsPanel() {
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
   const [createSource, setCreateSource] = useState(dashboardMode === 'full' ? 'openclaw' : 'user-codex')
+  const [uploadSource, setUploadSource] = useState(dashboardMode === 'full' ? 'openclaw' : 'user-codex')
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null)
   const [createName, setCreateName] = useState('')
   const [createContent, setCreateContent] = useState('# new-skill\n\nDescribe this skill.\n')
   const [createError, setCreateError] = useState<string | null>(null)
@@ -212,6 +217,31 @@ export function SkillsPanel() {
       setError(err?.message || 'Failed to refresh skills')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const uploadZip = async () => {
+    setUploadError(null)
+    setUploadMessage(null)
+    if (!uploadFile) {
+      setUploadError('Choose a .zip file first')
+      return
+    }
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.set('source', uploadSource)
+      form.set('file', uploadFile)
+      const res = await fetch('/api/skills', { method: 'POST', body: form })
+      const body = await res.json()
+      if (!res.ok) throw new Error(body?.error || 'Failed to upload zip')
+      setUploadFile(null)
+      setUploadMessage(`Uploaded ${body.count || 0} file(s) into ${getSourceLabel(uploadSource)}`)
+      await loadSkills()
+    } catch (err: any) {
+      setUploadError(err?.message || 'Failed to upload zip')
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -544,6 +574,42 @@ export function SkillsPanel() {
               placeholder={t('initialContent')}
             />
             {createError && <p className="text-xs text-destructive">{createError}</p>}
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-sm font-medium text-foreground">Upload skill zip</div>
+                <div className="text-xs text-muted-foreground">Unzips the archive directly into the selected skills directory. Zip entries must use safe relative paths.</div>
+              </div>
+              <Button variant="outline" size="xs" onClick={uploadZip} disabled={uploading || !uploadFile}>
+                {uploading ? 'Uploading…' : 'Upload zip'}
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-2">
+              <select
+                value={uploadSource}
+                onChange={(e) => setUploadSource(e.target.value)}
+                className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
+              >
+                <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
+                <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
+                <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
+                <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
+                {dashboardMode === 'full' && (
+                  <option value="openclaw">{SOURCE_LABELS['openclaw']}</option>
+                )}
+                <option value="workspace">{SOURCE_LABELS['workspace']}</option>
+              </select>
+              <input
+                type="file"
+                accept=".zip,application/zip,application/x-zip-compressed"
+                onChange={(e) => setUploadFile(e.currentTarget.files?.[0] || null)}
+                className="h-9 rounded-md border border-border bg-secondary/50 px-3 py-1.5 text-sm text-foreground file:mr-3 file:rounded file:border-0 file:bg-primary/15 file:px-2 file:py-1 file:text-xs file:text-primary"
+              />
+            </div>
+            {uploadMessage && <p className="text-xs text-emerald-400">{uploadMessage}</p>}
+            {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
           </div>
 
           {loading ? (
