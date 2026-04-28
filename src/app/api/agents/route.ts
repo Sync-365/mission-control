@@ -240,6 +240,24 @@ export async function POST(request: NextRequest) {
 
     const explicitWorkspacePath = openclaw_workspace_path ? path.resolve(openclaw_workspace_path) : null;
     let provisionedWorkspacePath: string | null = null;
+    const hermesProfileName = runtime_type === 'hermes' ? (openclawId || name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-') : null;
+    const hermesProfileDir = hermesProfileName ? path.join(appConfig.homeDir, '.hermes', 'profiles', hermesProfileName) : null;
+
+    if (runtime_type === 'hermes' && hermesProfileName && hermesProfileDir) {
+      finalConfig.runtime_type = 'hermes';
+      finalConfig.runtime = {
+        ...((finalConfig.runtime && typeof finalConfig.runtime === 'object') ? finalConfig.runtime : {}),
+        type: 'hermes',
+        profile: hermesProfileName,
+        profileDir: hermesProfileDir,
+      };
+      finalConfig.hermesProfile = hermesProfileName;
+      finalConfig.hermesProfileDir = hermesProfileDir;
+      if (workspace_mode === 'runtime' || !finalConfig.workspace) {
+        finalConfig.workspace = hermesProfileDir;
+        finalConfig.cwd = hermesProfileDir;
+      }
+    }
 
     if (provision_openclaw_workspace) {
       if (!appConfig.openclawStateDir) {
@@ -323,8 +341,8 @@ export async function POST(request: NextRequest) {
     if (runtime_type === 'hermes') {
       try {
         const { mkdirSync, writeFileSync } = require('node:fs')
-        const profileName = openclawId || name
-        const profileDir = path.join(appConfig.homeDir, '.hermes', 'profiles', profileName)
+        const profileName = hermesProfileName || openclawId || name
+        const profileDir = hermesProfileDir || path.join(appConfig.homeDir, '.hermes', 'profiles', profileName)
         mkdirSync(profileDir, { recursive: true })
 
         const primaryModel = typeof finalConfig.model === 'string'
@@ -344,6 +362,9 @@ export async function POST(request: NextRequest) {
           writeFileSync(path.join(profileDir, 'SOUL.md'), finalSoulContent, 'utf-8')
         }
         finalConfig.hermesProfile = profileName
+        finalConfig.hermesProfileDir = profileDir
+        finalConfig.workspace = finalConfig.workspace || profileDir
+        finalConfig.cwd = finalConfig.cwd || profileDir
         db.prepare('UPDATE agents SET config = ?, updated_at = ? WHERE id = ? AND workspace_id = ?')
           .run(JSON.stringify(finalConfig), now, agentId, workspaceId)
         logger.info({ agentName: name, profileDir }, 'Provisioned Hermes profile directory')

@@ -250,6 +250,12 @@ async function dispatchHermes(task: RuntimeDispatchTask, prompt: string): Promis
   const cfg = getAgentConfig(task)
   const dispatchModel = resolveOpenClawModel(task)
   const args = ['-z', prompt]
+  const hermesProfile = typeof cfg.hermesProfile === 'string' && cfg.hermesProfile
+    ? cfg.hermesProfile
+    : typeof cfg.runtime?.profile === 'string' && cfg.runtime.profile
+      ? cfg.runtime.profile
+      : null
+  if (hermesProfile) args.unshift('--profile', hermesProfile)
   if (dispatchModel) args.push('--model', dispatchModel)
   if (typeof cfg.provider === 'string' && cfg.provider) args.push('--provider', cfg.provider)
   if (typeof cfg.skills === 'string' && cfg.skills) args.push('--skills', cfg.skills)

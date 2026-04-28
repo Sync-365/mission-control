@@ -1842,6 +1842,9 @@ export function ConfigTab({
   const toolRawPreview = typeof tools.raw === 'string' ? tools.raw : ''
   const modelPrimary = model.primary || ''
   const modelFallbacks = Array.isArray(model.fallbacks) ? model.fallbacks : []
+  const runtimeType = config.runtime_type || config.runtime?.type || (agent as any).runtime_type || 'openclaw'
+  const runtimeProfile = config.hermesProfile || config.runtime?.profile || config.openclawId || ''
+  const runtimeWorkspace = config.hermesProfileDir || config.runtime?.profileDir || config.workspace || config.cwd || ''
 
   return (
     <div className="p-6 space-y-4">
@@ -1898,6 +1901,16 @@ export function ConfigTab({
       ) : (
         /* Structured view */
         <div className="space-y-4">
+          {/* Runtime */}
+          <div className="bg-surface-1/50 rounded-lg p-4">
+            <h5 className="text-sm font-medium text-foreground mb-2">Runtime</h5>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div><span className="text-muted-foreground">Type:</span> <span className="text-foreground font-mono">{runtimeType}</span></div>
+              <div><span className="text-muted-foreground">Profile:</span> <span className="text-foreground font-mono">{runtimeProfile || t('notConfigured')}</span></div>
+              <div className="min-w-0"><span className="text-muted-foreground">Workspace:</span> <span className="text-foreground font-mono break-words">{runtimeWorkspace || t('notConfigured')}</span></div>
+            </div>
+          </div>
+
           {/* Model */}
           <div className="bg-surface-1/50 rounded-lg p-4">
             <h5 className="text-sm font-medium text-foreground mb-2">{t('model')}</h5>

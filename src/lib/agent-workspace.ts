@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
 import { config } from '@/lib/config'
 import { resolveWithin } from '@/lib/paths'
@@ -25,6 +26,19 @@ export function getAgentWorkspaceCandidates(agentConfig: any, agentName: string)
   }
 
   const rawWorkspace = typeof agentConfig?.workspace === 'string' ? agentConfig.workspace.trim() : ''
+  const runtimeType = String(agentConfig?.runtime_type || agentConfig?.runtime?.type || agentConfig?.runtime || '').toLowerCase().trim()
+  const hermesProfile = typeof agentConfig?.hermesProfile === 'string' && agentConfig.hermesProfile.trim()
+    ? agentConfig.hermesProfile.trim()
+    : typeof agentConfig?.runtime?.profile === 'string' && agentConfig.runtime.profile.trim()
+      ? agentConfig.runtime.profile.trim()
+      : ''
+  const hermesProfileDir = typeof agentConfig?.hermesProfileDir === 'string' && agentConfig.hermesProfileDir.trim()
+    ? agentConfig.hermesProfileDir.trim()
+    : typeof agentConfig?.runtime?.profileDir === 'string' && agentConfig.runtime.profileDir.trim()
+      ? agentConfig.runtime.profileDir.trim()
+      : hermesProfile
+        ? resolve(homedir(), '.hermes', 'profiles', hermesProfile)
+        : ''
   const openclawIdRaw =
     typeof agentConfig?.openclawId === 'string' && agentConfig.openclawId.trim()
       ? agentConfig.openclawId.trim()
@@ -32,9 +46,13 @@ export function getAgentWorkspaceCandidates(agentConfig: any, agentName: string)
   const openclawId = openclawIdRaw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
   push(rawWorkspace || null)
-  push(`workspace-${openclawId}`)
-  push(`agents/${openclawId}`)
-  push('workspace')
+  if (runtimeType === 'hermes') {
+    push(hermesProfileDir || null)
+  } else {
+    push(`workspace-${openclawId}`)
+    push(`agents/${openclawId}`)
+    push('workspace')
+  }
 
   return out.filter((value) => existsSync(value))
 }
