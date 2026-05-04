@@ -76,13 +76,21 @@ export async function GET(request: NextRequest) {
     const assigned_to = searchParams.get('assigned_to');
     const priority = searchParams.get('priority');
     const projectIdParam = Number.parseInt(searchParams.get('project_id') || '', 10);
+    const sort = (searchParams.get('sort') || 'created').trim().toLowerCase();
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200);
     const offset = parseInt(searchParams.get('offset') || '0');
     
     // Build dynamic query
     let query = `
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix,
-        (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id AND c.workspace_id = t.workspace_id) as comment_count
+        (SELECT COUNT(*) FROM comments c WHERE c.task_id = t.id AND c.workspace_id = t.workspace_id) as comment_count,
+        (SELECT MAX(c.created_at) FROM comments c WHERE c.task_id = t.id AND c.workspace_id = t.workspace_id) as latest_comment_at,
+        (SELECT MAX(qr.created_at) FROM quality_reviews qr WHERE qr.task_id = t.id AND qr.workspace_id = t.workspace_id) as latest_review_at,
+        MAX(
+          COALESCE(t.updated_at, 0),
+          COALESCE((SELECT MAX(c.created_at) FROM comments c WHERE c.task_id = t.id AND c.workspace_id = t.workspace_id), 0),
+          COALESCE((SELECT MAX(qr.created_at) FROM quality_reviews qr WHERE qr.task_id = t.id AND qr.workspace_id = t.workspace_id), 0)
+        ) as latest_activity_at
       FROM tasks t
       LEFT JOIN projects p
         ON p.id = t.project_id AND p.workspace_id = t.workspace_id
@@ -110,7 +118,12 @@ export async function GET(request: NextRequest) {
       params.push(projectIdParam);
     }
     
-    query += ' ORDER BY t.created_at DESC LIMIT ? OFFSET ?';
+    if (sort === 'activity') {
+      query += ' ORDER BY latest_activity_at DESC, t.updated_at DESC, t.id DESC';
+    } else {
+      query += ' ORDER BY t.created_at DESC, t.id DESC';
+    }
+    query += ' LIMIT ? OFFSET ?';
     params.push(limit, offset);
     
     const stmt = db.prepare(query);

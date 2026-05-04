@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMissionControl, type ModelConfig } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
+import { sortTasksForColumn } from '@/lib/task-board-sort'
 
 import { createClientLogger } from '@/lib/client-logger'
 
@@ -57,6 +58,9 @@ interface Task {
   github_pr_number?: number
   github_pr_state?: string
   comment_count?: number
+  latest_comment_at?: number
+  latest_review_at?: number
+  latest_activity_at?: number
   error_message?: string
   dispatch_attempts?: number
 }
@@ -403,7 +407,7 @@ interface SpawnFormData {
 export function TaskBoardPanel() {
   const t = useTranslations('taskBoard')
   const statusColumns = STATUS_COLUMN_KEYS.map(col => ({ ...col, title: t(col.titleKey as any) }))
-  const { tasks: storeTasks, setTasks: storeSetTasks, selectedTask, setSelectedTask, activeProject, availableModels, spawnRequests, addSpawnRequest, updateSpawnRequest, dashboardMode } = useMissionControl()
+  const { tasks: storeTasks, setTasks: storeSetTasks, selectedTask, setSelectedTask, activeProject, setActiveProject, availableModels, spawnRequests, addSpawnRequest, updateSpawnRequest, dashboardMode } = useMissionControl()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -461,6 +465,8 @@ export function TaskBoardPanel() {
       setError(null)
 
       const tasksQuery = new URLSearchParams()
+      tasksQuery.set('sort', 'activity')
+      tasksQuery.set('limit', '200')
       if (projectFilter !== 'all') {
         tasksQuery.set('project_id', projectFilter)
       }
@@ -569,10 +575,12 @@ export function TaskBoardPanel() {
 
   // Group tasks by status, overriding for awaiting_owner detection
   const tasksByStatus = statusColumns.reduce((acc, column) => {
-    acc[column.key] = tasks.filter(task => {
+    const columnTasks = tasks.filter(task => {
       const effectiveStatus = detectAwaitingOwner(task) ? 'awaiting_owner' : task.status
       return effectiveStatus === column.key
     })
+
+    acc[column.key] = sortTasksForColumn(columnTasks, column.key)
     return acc
   }, {} as Record<string, Task[]>)
 
@@ -813,7 +821,16 @@ export function TaskBoardPanel() {
           <div className="relative">
             <select
               value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
+              onChange={(e) => {
+                const nextValue = e.target.value
+                setProjectFilter(nextValue)
+                if (nextValue === 'all') {
+                  setActiveProject(null)
+                  return
+                }
+                const selectedProject = projects.find((project) => String(project.id) === nextValue) || null
+                setActiveProject(selectedProject)
+              }}
               className="h-9 px-3 pr-8 bg-surface-1 text-foreground border border-border rounded-md text-sm appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/50"
             >
               <option value="all">{t('allProjects')}</option>
