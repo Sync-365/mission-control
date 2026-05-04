@@ -521,6 +521,21 @@ export function TaskBoardPanel() {
   }, [projectFilter, storeSetTasks])
 
   useEffect(() => {
+    if (activeProject || typeof window === 'undefined') return
+
+    try {
+      const raw = window.localStorage.getItem('mc-active-project')
+      if (!raw) return
+      const storedProject = JSON.parse(raw) as Project | null
+      if (storedProject?.id != null) {
+        setActiveProject(storedProject)
+      }
+    } catch {
+      // ignore malformed local storage data
+    }
+  }, [activeProject, setActiveProject])
+
+  useEffect(() => {
     fetchData()
   }, [fetchData])
 
